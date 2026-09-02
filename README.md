@@ -88,7 +88,17 @@ Endpoint `/iclock/*` menangkap keluarga protokol push/ADMS yang umum. Endpoint `
 - `GET/POST/PATCH /api/departments`
 - `GET/POST/PATCH /api/employees`
 - `POST /api/employees/import`
+- `GET/POST/PATCH /api/schedule-templates`
+- `GET/POST/PATCH/DELETE /api/roster`
 - `GET /api/attendance`
+
+## Urutan konfigurasi admin pertama
+
+1. Jalankan `seed:admin`, kemudian masuk melalui `/login`.
+2. Buka **Pengaturan jam** dan buat template sesuai kebijakan perusahaan, misalnya `STEADY_DAY`, `SHIFT_PAGI`, dan `SHIFT_MALAM`. Jam tidak diisi otomatis agar tidak salah dengan aturan perusahaan Anda.
+3. Buka **Data karyawan** untuk memeriksa mapping PIN dan alat X105. Lengkapi departemen serta mapping melalui API atau impor master data.
+4. Buka **Kalender roster** untuk menambahkan jadwal reguler. Tambahkan `ON_CALL` atau `OVERTIME` sebagai overlay bila diperlukan. Untuk `OFF` dan `LEAVE`, pilih tanpa template.
+5. Setelah roster terisi, tahap berikutnya adalah menjalankan rules engine untuk menghitung status harian dari scan X105 dan roster.
 
 ## Pemeriksaan proyek
 
@@ -99,8 +109,7 @@ bun --filter @attendance/api test
 
 ## Roadmap berikutnya
 
-1. CRUD karyawan pada dashboard admin dan impor data massal.
-2. Template jam `SHIFT_PAGI`, `SHIFT_MALAM`, dan `STEADY_DAY`.
-3. Kalender roster terpadu untuk reguler, on-call, cuti, lembur, dan off.
-4. Mesin aturan harian untuk menentukan check-in, check-out, terlambat, hadir, alfa, dan konflik jadwal.
-5. Monitoring perangkat, cursor ADMS, serta rekonsiliasi backlog.
+1. Mesin aturan harian untuk menentukan check-in, check-out, terlambat, hadir, alfa, dan konflik jadwal.
+2. Layar edit master karyawan dan impor data massal dari dashboard.
+3. Pengajuan dan persetujuan cuti.
+4. Monitoring perangkat, cursor ADMS, serta rekonsiliasi backlog.

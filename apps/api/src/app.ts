@@ -6,6 +6,7 @@ import { AppError } from "./errors";
 import { parseDeviceRequest } from "./parser";
 import { authRoutes } from "./routes/auth";
 import { masterDataRoutes } from "./routes/master-data";
+import { schedulingRoutes } from "./routes/scheduling";
 import { addEvents, clearEvents, listEvents } from "./store";
 
 const webOrigins = (Bun.env.WEB_ORIGIN ?? "http://localhost:3000")
@@ -29,6 +30,7 @@ export const app = new Elysia()
   })
   .use(authRoutes)
   .use(masterDataRoutes)
+  .use(schedulingRoutes)
   .get("/health", () => ({ status: "ok", time: new Date().toISOString() }))
   .get("/api/events", ({ request, query }) => {
     requirePermission(request, "VIEW_ATTENDANCE");

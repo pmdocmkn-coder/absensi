@@ -531,6 +531,10 @@ code {
   font-family: "Arial Black", Arial, sans-serif;
 }
 
+.notice-error {
+  background: var(--red);
+}
+
 .status-badge {
   display: inline-flex;
   min-height: 25px;
@@ -884,6 +888,126 @@ tbody tr:hover td {
   background: var(--blue);
 }
 
+.compact-form {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.compact-form .form-field input,
+.compact-form .form-field select,
+.roster-form .form-field input,
+.roster-form .form-field select {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.compact-form .form-field input:focus,
+.compact-form .form-field select:focus,
+.roster-form .form-field input:focus,
+.roster-form .form-field select:focus {
+  background: #fff6c7;
+}
+
+.form-two-column {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.check-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.check-field input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--accent-strong);
+}
+
+.mapping-line {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+}
+
+.mapping-line:last-child {
+  margin-bottom: 0;
+}
+
+.roster-controls {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding: 16px;
+}
+
+.week-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.week-navigation strong {
+  text-align: center;
+  font-family: "Arial Black", Arial, sans-serif;
+  font-size: 15px;
+}
+
+.secondary-button {
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+  box-shadow: 2px 2px 0 var(--ink);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.secondary-button:active {
+  box-shadow: 1px 1px 0 var(--ink);
+  transform: translate(1px, 1px);
+}
+
+.roster-form {
+  display: grid;
+  grid-template-columns: minmax(170px, 1.2fr) minmax(130px, 0.65fr) minmax(150px, 0.8fr) minmax(170px, 1fr) minmax(160px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.roster-form .primary-button {
+  min-height: 42px;
+  padding: 8px 11px;
+  font-size: 10px;
+}
+
+.roster-cell-stack {
+  align-items: stretch !important;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.roster-cell-stack .status-badge {
+  max-width: 100%;
+  justify-content: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .auth-loading {
   display: grid;
   min-height: 100dvh;
@@ -1120,6 +1244,10 @@ tbody tr:hover td {
   .template-row {
     grid-template-columns: minmax(170px, 1fr) repeat(2, minmax(120px, 0.7fr)) auto;
   }
+
+  .roster-form {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 860px) {
@@ -1209,6 +1337,14 @@ tbody tr:hover td {
     grid-template-columns: 1fr 1fr;
   }
 
+  .roster-form {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .roster-notes {
+    grid-column: span 2;
+  }
+
   .login-page {
     grid-template-columns: 1fr;
   }
@@ -1270,6 +1406,20 @@ tbody tr:hover td {
 
   .template-row {
     grid-template-columns: 1fr;
+  }
+
+  .week-navigation {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .roster-form,
+  .form-two-column {
+    grid-template-columns: 1fr;
+  }
+
+  .roster-notes {
+    grid-column: auto;
   }
 
   .legend {
