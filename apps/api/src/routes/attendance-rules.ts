@@ -3,6 +3,7 @@ import { requireAuth, requirePermission } from "../auth";
 import { ValidationError } from "../errors";
 import {
   confirmDailyAttendance,
+  deleteScheduleProfile,
   listDailyAttendance,
   listScheduleProfiles,
   upsertScheduleProfile
@@ -47,6 +48,12 @@ export const attendanceRulesRoutes = new Elysia({ prefix: "/api" })
       autoWeekendOvertime: t.Optional(t.Boolean()),
       overtimeBufferMinutes: t.Optional(t.Integer({ minimum: 0, maximum: 240 }))
     })
+  })
+  .delete("/schedule-profiles/:employeeId", ({ request, params }) => {
+    requirePermission(request, "MANAGE_MASTER_DATA");
+    const employeeId = Number(params.employeeId);
+    if (!Number.isInteger(employeeId) || employeeId < 1) throw new ValidationError("employeeId tidak valid");
+    return deleteScheduleProfile(employeeId);
   })
   .get("/attendance/daily", ({ request, query }) => {
     const auth = requireAuth(request);

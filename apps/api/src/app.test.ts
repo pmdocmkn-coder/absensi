@@ -117,17 +117,10 @@ describe("authentication and master-data API", () => {
     employeeId = employeePayload.records.find((employee) => employee.employeeCode === "EMP-001")?.id ?? 0;
     expect(employeeId).toBeGreaterThan(0);
 
-    const templateResponse = await app.handle(jsonRequest("/api/schedule-templates", "POST", {
-      code: "STEADY_DAY",
-      name: "Steady Day",
-      kind: "REGULAR",
-      startTime: "08:00",
-      endTime: "17:00",
-      graceMinutes: 10,
-      crossesMidnight: false
-    }, adminCookie));
-    const template = await templateResponse.json() as { id: string; code: string };
-    expect(templateResponse.status).toBe(201);
+    const templateResponse = await app.handle(jsonRequest("/api/schedule-templates", "GET", undefined, adminCookie));
+    const templatePayload = await templateResponse.json() as { records: Array<{ id: string; code: string }> };
+    const template = templatePayload.records.find((record) => record.code === "STEADY_DAY")!;
+    expect(templateResponse.status).toBe(200);
     expect(template.code).toBe("STEADY_DAY");
     steadyDayTemplateId = template.id;
 
@@ -148,6 +141,40 @@ describe("authentication and master-data API", () => {
     expect(onCallResponse.status).toBe(201);
   });
 
+  test("pairs a night-shift check-out on the following day", async () => {
+    const employeesResponse = await app.handle(jsonRequest("/api/employees", "GET", undefined, adminCookie));
+    const employeePayload = await employeesResponse.json() as { records: Array<{ id: number; employeeCode: string }> };
+    const nightEmployeeId = employeePayload.records.find((employee) => employee.employeeCode === "EMP-002")?.id ?? 0;
+    const templatesResponse = await app.handle(jsonRequest("/api/schedule-templates", "GET", undefined, adminCookie));
+    const templatePayload = await templatesResponse.json() as { records: Array<{ id: string; code: string }> };
+    const nightTemplate = templatePayload.records.find((template) => template.code === "SHIFT_MALAM")!;
+
+    const rosterResponse = await app.handle(jsonRequest("/api/roster", "POST", {
+      employeeId: nightEmployeeId,
+      assignmentDate: "2026-09-01",
+      assignmentType: "REGULAR",
+      scheduleTemplateId: nightTemplate.id
+    }, adminCookie));
+    expect(rosterResponse.status).toBe(201);
+
+    const uploadResponse = await app.handle(new Request("http://localhost/iclock/cdata?SN=X105-TEST&table=ATTLOG", {
+      method: "POST",
+      body: [
+        "2002\t2026-09-01 17:55:00\t0\t1",
+        "2002\t2026-09-02 06:20:00\t0\t1"
+      ].join("\n")
+    }));
+    expect(uploadResponse.status).toBe(200);
+
+    const dailyResponse = await app.handle(jsonRequest(`/api/attendance/daily?from=2026-09-01&to=2026-09-01&employeeId=${nightEmployeeId}`, "GET", undefined, adminCookie));
+    const payload = await dailyResponse.json() as { records: Array<{ scheduleCode: string; checkOutAt: string | null; overtimeMinutes: number; autoStatus: string }> };
+    expect(dailyResponse.status).toBe(200);
+    expect(payload.records[0]?.scheduleCode).toBe("SHIFT_MALAM");
+    expect(payload.records[0]?.checkOutAt).toBe("2026-09-02 06:20:00");
+    expect(payload.records[0]?.overtimeMinutes).toBe(5);
+    expect(payload.records[0]?.autoStatus).toBe("OVERTIME");
+  });
+
   test("evaluates Steady Day and weekend scans automatically, then lets admin confirm", async () => {
     const profileResponse = await app.handle(jsonRequest(`/api/schedule-profiles/${employeeId}`, "PUT", {
       scheduleTemplateId: steadyDayTemplateId,
@@ -162,19 +189,27 @@ describe("authentication and master-data API", () => {
     }, adminCookie));
     expect(mappingResponse.status).toBe(200);
 
+    const offResponse = await app.handle(jsonRequest("/api/roster", "POST", {
+      employeeId,
+      assignmentDate: "2026-09-01",
+      assignmentType: "OFF"
+    }, adminCookie));
+    expect(offResponse.status).toBe(201);
+
     const uploadResponse = await app.handle(new Request("http://localhost/iclock/cdata?SN=X105-RULES&table=ATTLOG", {
       method: "POST",
       body: [
         "EMP-001\t2026-08-30 09:00:00\t0\t1",
         "EMP-001\t2026-08-30 17:00:00\t0\t1",
         "EMP-001\t2026-08-31 08:05:00\t0\t1",
-        "EMP-001\t2026-08-31 17:45:00\t0\t1"
+        "EMP-001\t2026-08-31 17:45:00\t0\t1",
+        "EMP-001\t2026-09-01 10:00:00\t0\t1"
       ].join("\n")
     }));
     expect(uploadResponse.status).toBe(200);
 
     const dailyResponse = await app.handle(jsonRequest(
-      `/api/attendance/daily?from=2026-08-30&to=2026-08-31&employeeId=${employeeId}`,
+      `/api/attendance/daily?from=2026-08-28&to=2026-09-01&employeeId=${employeeId}`,
       "GET",
       undefined,
       adminCookie
@@ -182,8 +217,10 @@ describe("authentication and master-data API", () => {
     const dailyPayload = await dailyResponse.json() as { records: Array<{ attendanceDate: string; autoStatus: string; overtimeMinutes: number }> };
     expect(dailyResponse.status).toBe(200);
     expect(dailyPayload.records.find((record) => record.attendanceDate === "2026-08-30")?.autoStatus).toBe("OVERTIME");
+    expect(dailyPayload.records.find((record) => record.attendanceDate === "2026-08-28")?.autoStatus).toBe("ABSENT");
     expect(dailyPayload.records.find((record) => record.attendanceDate === "2026-08-31")?.autoStatus).toBe("OVERTIME");
     expect(dailyPayload.records.find((record) => record.attendanceDate === "2026-08-31")?.overtimeMinutes).toBe(30);
+    expect(dailyPayload.records.find((record) => record.attendanceDate === "2026-09-01")?.autoStatus).toBe("NEEDS_REVIEW");
 
     const confirmationResponse = await app.handle(jsonRequest(`/api/attendance/daily/${employeeId}/2026-08-30/confirm`, "PATCH", {
       status: "OVERTIME",

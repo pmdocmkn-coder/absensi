@@ -575,6 +575,111 @@ code {
   z-index: 3;
 }
 
+.data-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(190px, 0.45fr) auto;
+  gap: 14px;
+  align-items: end;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--ink);
+  background: color-mix(in srgb, var(--surface-muted) 62%, var(--surface));
+}
+
+.data-toolbar-search {
+  min-width: 260px;
+}
+
+.data-toolbar .form-field input,
+.data-toolbar .form-field select,
+.employee-config-grid .form-field input,
+.employee-config-grid .form-field select,
+.employee-table select,
+.attendance-detail-table select {
+  width: 100%;
+  min-height: 40px;
+  padding: 7px 9px;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.toolbar-result {
+  align-self: center;
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+.attendance-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  margin-bottom: 18px;
+  overflow: hidden;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.attendance-summary > div {
+  display: flex;
+  min-height: 82px;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 13px 15px;
+  border-right: 1px solid var(--ink);
+}
+
+.attendance-summary > div:last-child { border-right: 0; }
+.attendance-summary > div:first-child { background: var(--accent); }
+.attendance-summary span { color: var(--ink-muted); font-size: 10px; font-weight: 800; }
+.attendance-summary strong { font-family: "Arial Black", Arial, sans-serif; font-size: 25px; line-height: 1; }
+
+.attendance-table-wrap { max-height: 66dvh !important; }
+.attendance-detail-table { min-width: 1120px; }
+.attendance-detail-table th:first-child,
+.attendance-detail-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--surface);
+}
+.attendance-detail-table th:first-child { z-index: 4; background: var(--surface-muted); }
+.attendance-detail-table tbody tr:hover td:first-child { background: color-mix(in srgb, var(--accent) 22%, var(--surface)); }
+
+.time-chip {
+  display: inline-block;
+  padding: 3px 5px;
+  border: 1px solid var(--ink);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 11px;
+}
+.time-in { background: color-mix(in srgb, var(--green) 62%, var(--surface)); }
+.time-out { background: color-mix(in srgb, var(--blue) 62%, var(--surface)); }
+.time-empty { color: var(--ink-muted); font-family: Consolas, "Courier New", monospace; font-size: 10px; }
+
+.detail-cell {
+  min-width: 250px;
+  max-width: 380px;
+  white-space: normal;
+}
+.detail-cell strong,
+.detail-cell small { display: block; }
+.detail-cell strong { font-size: 11px; }
+.detail-cell small { margin-top: 3px; color: var(--ink-muted); font-size: 10px; }
+
+.raw-log-panel { margin-top: 18px; }
+.raw-log-panel > details > summary {
+  padding: 14px 18px;
+  background: var(--surface-muted);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  list-style-position: inside;
+}
+.raw-log-panel details[open] > summary { border-bottom: 2px solid var(--ink); background: var(--accent); }
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -958,6 +1063,21 @@ tbody tr:hover td {
   gap: 14px;
 }
 
+.week-navigation > div {
+  display: grid;
+  flex: 1;
+  justify-items: center;
+  gap: 2px;
+}
+
+.week-navigation > div > span {
+  color: var(--ink-muted);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+
 .week-navigation strong {
   text-align: center;
   font-family: "Arial Black", Arial, sans-serif;
@@ -1006,6 +1126,147 @@ tbody tr:hover td {
   justify-content: center;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.roster-toolbar {
+  grid-template-columns: minmax(260px, 1fr) minmax(210px, .45fr) auto;
+}
+
+.roster-scroll {
+  max-height: 68dvh;
+  overflow: auto;
+}
+
+.roster-header-row {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.roster-header-row .roster-employee-column { z-index: 7; background: var(--surface-muted); }
+.roster-weekend { background: color-mix(in srgb, var(--surface-muted) 72%, var(--surface)); }
+
+.roster-assignment {
+  display: grid;
+  gap: 3px;
+  align-content: center;
+}
+.roster-assignment small { color: var(--ink-muted); font-family: Consolas, "Courier New", monospace; font-size: 9px; }
+.roster-assignment button {
+  padding: 1px 4px;
+  border: 0;
+  background: transparent;
+  color: #8d1711;
+  font-size: 9px;
+  font-weight: 800;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.roster-empty-cell {
+  width: 30px;
+  height: 30px;
+  margin: auto;
+  border: 1px dashed var(--ink-muted);
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+.roster-empty-cell:hover { border-style: solid; background: var(--accent); color: var(--ink); }
+
+.employee-summary { grid-template-columns: repeat(4, minmax(150px, 1fr)); }
+.employee-config-panel { margin-bottom: 18px; box-shadow: var(--shadow); }
+.employee-config-panel .panel-heading { background: var(--blue); }
+.employee-config-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, .8fr) minmax(420px, 1.4fr);
+  gap: 18px;
+  align-items: stretch;
+  padding: 18px;
+}
+.employee-config-section {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 16px;
+  border: 2px solid var(--ink);
+  background: var(--surface);
+}
+.employee-config-section h3 { margin: 0; font-size: 15px; }
+.employee-config-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.department-quick-add {
+  display: grid;
+  grid-template-columns: auto minmax(100px, .45fr) minmax(160px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--ink);
+}
+.department-quick-add strong { font-size: 11px; }
+.department-quick-add input {
+  min-width: 0;
+  min-height: 36px;
+  padding: 7px 9px;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.weekday-field { margin: 0; padding: 0; border: 0; }
+.weekday-field legend { margin-bottom: 7px; font-size: 12px; font-weight: 800; }
+.weekday-field > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.weekday-field label { cursor: pointer; }
+.weekday-field input { position: absolute; opacity: 0; pointer-events: none; }
+.weekday-field span {
+  display: grid;
+  min-width: 39px;
+  min-height: 39px;
+  place-items: center;
+  border: 2px solid var(--ink);
+  background: var(--surface);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 10px;
+  font-weight: 800;
+}
+.weekday-field input:checked + span { background: var(--accent); box-shadow: 2px 2px 0 var(--ink); transform: translate(-1px, -1px); }
+.input-with-suffix { display: grid; grid-template-columns: 1fr auto; align-items: center; }
+.input-with-suffix span { padding: 9px 10px; border: 2px solid var(--ink); border-left: 0; background: var(--surface-muted); font-size: 11px; }
+.input-with-suffix input { box-shadow: none !important; }
+.config-check { align-self: center; }
+.config-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.danger-button {
+  min-height: 44px;
+  padding: 9px 13px;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--red);
+  box-shadow: 3px 3px 0 var(--ink);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.employee-table-wrap { max-height: 70dvh !important; }
+.employee-table { min-width: 1080px; }
+.employee-table th:first-child,
+.employee-table td:first-child { position: sticky; left: 0; z-index: 2; background: var(--surface); }
+.employee-table th:first-child { z-index: 4; background: var(--surface-muted); }
+.employee-table tbody tr:hover td:first-child { background: color-mix(in srgb, var(--accent) 22%, var(--surface)); }
+.device-mapping { display: grid; gap: 3px; margin-bottom: 6px; }
+.device-mapping:last-child { margin-bottom: 0; }
+.device-mapping small { color: var(--ink-muted); font-size: 9px; }
+.compact-button { min-height: 32px; padding: 5px 8px; }
+
+.verification-toolbar { grid-template-columns: minmax(170px, .35fr) minmax(280px, 1fr) auto; }
+.verification-table-wrap { max-height: 70dvh !important; }
+.verification-table { min-width: 1120px; }
+.verification-action { display: grid; min-width: 250px; gap: 7px; white-space: normal; }
+.verification-action select,
+.verification-action input {
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--surface);
 }
 
 .auth-loading {
@@ -1248,6 +1509,8 @@ tbody tr:hover td {
   .roster-form {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .employee-config-grid { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 860px) {
@@ -1341,6 +1604,18 @@ tbody tr:hover td {
     grid-template-columns: 1fr 1fr;
   }
 
+  .attendance-summary,
+  .employee-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .attendance-summary > div:nth-child(2n) { border-right: 0; }
+  .attendance-summary > div { border-bottom: 1px solid var(--ink); }
+  .data-toolbar,
+  .roster-toolbar { grid-template-columns: 1fr 1fr; }
+  .data-toolbar-search { min-width: 0; }
+  .employee-config-grid { grid-template-columns: 1fr; }
+  .department-quick-add { grid-template-columns: 1fr 1fr; }
+  .department-quick-add strong { grid-column: 1 / -1; }
+  .config-actions { grid-column: auto; justify-content: flex-start; }
+
   .roster-notes {
     grid-column: span 2;
   }
@@ -1412,6 +1687,14 @@ tbody tr:hover td {
     align-items: stretch;
     flex-direction: column;
   }
+
+  .data-toolbar,
+  .roster-toolbar,
+  .attendance-summary,
+  .employee-summary { grid-template-columns: 1fr; }
+  .attendance-summary > div { border-right: 0; }
+  .attendance-summary > div:last-child { border-bottom: 0; }
+  .config-actions { align-items: stretch; flex-direction: column; }
 
   .roster-form,
   .form-two-column {

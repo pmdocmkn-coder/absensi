@@ -48,7 +48,11 @@ export type DailyAttendance = {
   checkOutAt: string | null;
   scheduledStartAt: string | null;
   scheduledEndAt: string | null;
+  scheduleCode: string | null;
+  scheduleName: string | null;
+  scanCount: number;
   lateMinutes: number;
+  earlyLeaveMinutes: number;
   overtimeMinutes: number;
   hasOnCall: boolean;
   notes: string[];
@@ -85,11 +89,6 @@ function minutes(time: string) {
 
 function scanMinutes(recordedAt: string) {
   return minutes(recordedAt.slice(11, 16));
-}
-
-function durationMinutes(start: string, end: string, crossesMidnight: boolean) {
-  const result = minutes(end) - minutes(start) + (crossesMidnight ? 1440 : 0);
-  return Math.max(result, 0);
 }
 
 function parseWorkdays(value: string) {
@@ -215,7 +214,14 @@ function persistAutoEvaluation(record: Omit<DailyAttendance, "status" | "confirm
     record.scheduledEndAt,
     record.lateMinutes,
     record.overtimeMinutes,
-    JSON.stringify({ hasOnCall: record.hasOnCall, notes: record.notes }),
+    JSON.stringify({
+      hasOnCall: record.hasOnCall,
+      notes: record.notes,
+      scheduleCode: record.scheduleCode,
+      scheduleName: record.scheduleName,
+      scanCount: record.scanCount,
+      earlyLeaveMinutes: record.earlyLeaveMinutes
+    }),
     new Date().toISOString()
   );
 }
@@ -259,6 +265,7 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
   const notes: string[] = [];
   let autoStatus: AttendanceAutoStatus = "NO_SCHEDULE";
   let lateMinutes = 0;
+  let earlyLeaveMinutes = 0;
   let overtimeMinutes = 0;
   let scheduledStartAt: string | null = null;
   let scheduledEndAt: string | null = null;
@@ -284,14 +291,20 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
       autoStatus = lateMinutes > 0 ? "LATE" : "PRESENT";
       if (lateMinutes > 0) notes.push(`Terlambat ${lateMinutes} menit`);
 
-      const scanOutsideBefore = scheduledStartMinutes - adjustedCheckInMinutes;
       const finalScan = scans.at(-1)?.recordedAt;
       const finalMinutesRaw = finalScan ? scanMinutes(finalScan) : adjustedCheckInMinutes;
       const adjustedFinalMinutes = template.crossesMidnight && finalScan && finalScan.slice(0, 10) !== attendanceDate ? finalMinutesRaw + 1440 : finalMinutesRaw;
-      const scanOutsideAfter = adjustedFinalMinutes - scheduledEndMinutes;
-      overtimeMinutes = Math.max(0, scanOutsideBefore - buffer) + Math.max(0, scanOutsideAfter - buffer);
+      const scanOutsideAfter = checkOutAt ? adjustedFinalMinutes - scheduledEndMinutes : 0;
+      overtimeMinutes = Math.max(0, scanOutsideAfter - buffer);
+      earlyLeaveMinutes = checkOutAt ? Math.max(0, scheduledEndMinutes - adjustedFinalMinutes) : 0;
 
-      if (explicitOvertime || overtimeMinutes > 0) {
+      if (earlyLeaveMinutes > 0) notes.push(`Pulang ${earlyLeaveMinutes} menit sebelum jadwal selesai`);
+      if (!checkOutAt && dateHasEnded(attendanceDate, template.endTime, Boolean(template.crossesMidnight))) {
+        autoStatus = explicitOvertime ? "OVERTIME" : "NEEDS_REVIEW";
+        notes.push("Hanya satu scan; waktu keluar belum ditemukan");
+      }
+
+      if (explicitOvertime || (overtimeMinutes > 0 && checkOutAt)) {
         autoStatus = "OVERTIME";
         notes.push(explicitOvertime ? "Lembur sesuai roster" : `Scan di luar jam reguler, estimasi lembur ${overtimeMinutes} menit`);
       } else if (hasOnCall) {
@@ -299,9 +312,13 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
       }
     }
   } else if (scans.length && fallbackTemplate && Boolean(person.autoWeekendOvertime)) {
-    autoStatus = hasOnCall ? "ON_CALL" : "OVERTIME";
-    overtimeMinutes = durationMinutes(fallbackTemplate.startTime, fallbackTemplate.endTime, Boolean(fallbackTemplate.crossesMidnight));
-    notes.push(hasOnCall ? "On-call dengan scan di luar hari kerja reguler" : "Scan pada hari di luar jadwal Steady Day, lembur akhir pekan otomatis");
+    autoStatus = scans.length > 1 ? (hasOnCall ? "ON_CALL" : "OVERTIME") : "NEEDS_REVIEW";
+    overtimeMinutes = checkInAt && checkOutAt
+      ? Math.max(0, Math.round((new Date(`${checkOutAt.replace(" ", "T")}+08:00`).getTime() - new Date(`${checkInAt.replace(" ", "T")}+08:00`).getTime()) / 60_000))
+      : 0;
+    notes.push(scans.length > 1
+      ? hasOnCall ? "On-call dengan scan di luar hari kerja reguler" : "Scan pada hari di luar jadwal Steady Day, lembur akhir pekan otomatis"
+      : "Scan akhir pekan belum memiliki pasangan masuk dan keluar");
   } else if (scans.length && (explicitOvertime || hasOnCall)) {
     autoStatus = hasOnCall ? "ON_CALL" : "OVERTIME";
     notes.push(hasOnCall ? "On-call dengan scan" : "Lembur sesuai roster");
@@ -326,7 +343,11 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
     checkOutAt,
     scheduledStartAt,
     scheduledEndAt,
+    scheduleCode: template?.code ?? fallbackTemplate?.code ?? null,
+    scheduleName: template?.name ?? fallbackTemplate?.name ?? null,
+    scanCount: scans.length,
     lateMinutes,
+    earlyLeaveMinutes,
     overtimeMinutes,
     hasOnCall,
     notes
@@ -345,6 +366,8 @@ export function listDailyAttendance(input: { from: string; to: string; employeeI
   const from = validDate(input.from);
   const to = validDate(input.to);
   if (from > to) throw new ValidationError("Tanggal mulai tidak boleh melebihi tanggal akhir");
+  const rangeDays = Math.round((new Date(`${to}T00:00:00.000Z`).getTime() - new Date(`${from}T00:00:00.000Z`).getTime()) / 86_400_000) + 1;
+  if (rangeDays > 31) throw new ValidationError("Rentang evaluasi absensi maksimal 31 hari");
   const targetEmployees = input.employeeId === undefined
     ? sqlite.query<{ id: number }, []>("SELECT id FROM employees WHERE is_active = 1 ORDER BY name ASC").all().map((row) => row.id)
     : [input.employeeId];
@@ -401,6 +424,15 @@ export function listScheduleProfiles() {
     .orderBy(asc(employees.name))
     .all()
     .map((profile) => ({ ...profile, workdays: parseWorkdays(profile.workdaysJson) }));
+}
+
+export function deleteScheduleProfile(employeeId: number) {
+  const deleted = db.delete(employeeScheduleProfiles)
+    .where(eq(employeeScheduleProfiles.employeeId, employeeId))
+    .returning({ employeeId: employeeScheduleProfiles.employeeId })
+    .get();
+  if (!deleted) throw new NotFoundError("Profil kerja karyawan tidak ditemukan");
+  return { success: true };
 }
 
 export function confirmDailyAttendance(input: {

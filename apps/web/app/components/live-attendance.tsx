@@ -8,6 +8,7 @@ type AttendanceRecord = {
   deviceSerial: string;
   employeeCode: string;
   employeeName: string | null;
+  departmentName: string | null;
   recordedAt: string;
   receivedAt: string;
 };
@@ -107,7 +108,7 @@ export function LiveAttendance({ limit = 8, compact = false }: { limit?: number;
                 <strong className="table-primary">{record.employeeName ?? `ID ${record.employeeCode}`}</strong>
                 <small className="table-secondary">PIN {record.employeeCode}</small>
               </td>
-              <td><span className="muted-value">Belum dipetakan</span></td>
+              <td>{record.departmentName ?? <span className="muted-value">Belum dipetakan</span>}</td>
               <td className="numeric-cell">{formatDeviceTime(record.recordedAt)}</td>
               <td><StatusBadge tone="pending">Menunggu aturan</StatusBadge></td>
               <td><span className="muted-value">Raw log X105</span></td>
