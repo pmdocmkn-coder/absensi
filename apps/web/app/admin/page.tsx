@@ -11,14 +11,14 @@ export default function AdminDashboardPage() {
       <PageHeader
         title="Pusat operasional"
         description="Pantau kesiapan perangkat, jadwal, dan data yang perlu ditinjau admin."
-        action={<StatusBadge tone="pending">Fondasi konfigurasi</StatusBadge>}
+        action={<StatusBadge tone="on-time">Evaluasi otomatis siap</StatusBadge>}
       />
 
       <section className="metric-grid" aria-label="Ringkasan administrasi">
         <Metric label="Karyawan terdaftar" value="117" note="Data mesin Sangatta" emphasis />
         <Metric label="Perangkat" value="2" note="1 online, 1 perlu diperiksa" />
         <Metric label="Roster terbit" value="0" note="September 2026" />
-        <Metric label="Perlu ditinjau" value="-" note="Aktif setelah rules engine" />
+        <Metric label="Perlu ditinjau" value="Buka verifikasi" note="Konfirmasi hanya untuk pengecualian" />
       </section>
 
       <section className="admin-action-grid">
@@ -31,6 +31,11 @@ export default function AdminDashboardPage() {
           <span>Master data</span>
           <strong>Petakan PIN mesin ke karyawan</strong>
           <small>Buka data karyawan</small>
+        </Link>
+        <Link className="action-block action-yellow" href="/admin/kehadiran">
+          <span>Aturan otomatis</span>
+          <strong>Konfirmasi hasil absensi dan lembur</strong>
+          <small>Buka verifikasi absensi</small>
         </Link>
         <Link className="action-block" href="/admin/pengaturan-jam">
           <span>Aturan waktu</span>
@@ -53,7 +58,7 @@ export default function AdminDashboardPage() {
           <li><strong>Master karyawan</strong><span>Tambahkan departemen dan hubungan PIN perangkat.</span></li>
           <li><strong>Template jam kerja</strong><span>Buat steady day, shift pagi, dan shift malam.</span></li>
           <li><strong>Roster diterbitkan</strong><span>Tentukan jadwal harian setiap karyawan.</span></li>
-          <li><strong>Rules engine diaktifkan</strong><span>Hitung masuk, keluar, terlambat, off, on-call, dan lembur.</span></li>
+          <li className="readiness-complete"><strong>Rules engine aktif</strong><span>Hitung masuk, keluar, terlambat, off, on-call, dan lembur.</span></li>
         </ol>
       </section>
     </>

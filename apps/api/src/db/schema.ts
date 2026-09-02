@@ -3,6 +3,8 @@ import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqli
 export type UserRole = "EMPLOYEE" | "SUPERVISOR" | "ADMIN";
 export type ScheduleTemplateKind = "REGULAR" | "ON_CALL" | "OVERTIME";
 export type RosterAssignmentType = "REGULAR" | "OFF" | "LEAVE" | "ON_CALL" | "OVERTIME";
+export type AttendanceAutoStatus = "PRESENT" | "LATE" | "OVERTIME" | "ON_CALL" | "OFF" | "LEAVE" | "ABSENT" | "PENDING" | "NEEDS_REVIEW" | "NO_SCHEDULE";
+export type AttendanceConfirmedStatus = Exclude<AttendanceAutoStatus, "PENDING" | "NO_SCHEDULE">;
 
 export const schemaMigrations = sqliteTable("schema_migrations", {
   version: integer("version").primaryKey(),
@@ -124,4 +126,36 @@ export const rosterAssignments = sqliteTable("roster_assignments", {
   index("roster_assignments_date_idx").on(table.assignmentDate),
   index("roster_assignments_employee_date_idx").on(table.employeeId, table.assignmentDate),
   index("roster_assignments_template_idx").on(table.scheduleTemplateId)
+]);
+
+export const employeeScheduleProfiles = sqliteTable("employee_schedule_profiles", {
+  employeeId: integer("employee_id").primaryKey().references(() => employees.id),
+  scheduleTemplateId: text("schedule_template_id").notNull().references(() => scheduleTemplates.id),
+  workdaysJson: text("workdays_json").notNull().default("[1,2,3,4,5]"),
+  autoWeekendOvertime: integer("auto_weekend_overtime", { mode: "boolean" }).notNull().default(true),
+  overtimeBufferMinutes: integer("overtime_buffer_minutes").notNull().default(15),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull()
+});
+
+export const attendanceEvaluations = sqliteTable("attendance_evaluations", {
+  employeeId: integer("employee_id").notNull().references(() => employees.id),
+  attendanceDate: text("attendance_date").notNull(),
+  autoStatus: text("auto_status").$type<AttendanceAutoStatus>().notNull(),
+  confirmedStatus: text("confirmed_status").$type<AttendanceConfirmedStatus>(),
+  checkInAt: text("check_in_at"),
+  checkOutAt: text("check_out_at"),
+  scheduledStartAt: text("scheduled_start_at"),
+  scheduledEndAt: text("scheduled_end_at"),
+  lateMinutes: integer("late_minutes").notNull().default(0),
+  overtimeMinutes: integer("overtime_minutes").notNull().default(0),
+  detailJson: text("detail_json").notNull().default("{}"),
+  confirmationNote: text("confirmation_note"),
+  confirmedByEmployeeId: integer("confirmed_by_employee_id").references(() => employees.id),
+  confirmedAt: text("confirmed_at"),
+  generatedAt: text("generated_at").notNull()
+}, (table) => [
+  uniqueIndex("attendance_evaluations_employee_date_unique").on(table.employeeId, table.attendanceDate),
+  index("attendance_evaluations_date_idx").on(table.attendanceDate),
+  index("attendance_evaluations_status_idx").on(table.autoStatus, table.confirmedStatus)
 ]);

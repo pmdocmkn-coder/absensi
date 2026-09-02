@@ -12,12 +12,14 @@ describe("database migrations", () => {
     const firstRun = runMigrations(database);
     const secondRun = runMigrations(database);
 
-    expect(firstRun.map((migration) => migration.version)).toEqual([1, 2, 3]);
+    expect(firstRun.map((migration) => migration.version)).toEqual([1, 2, 3, 4]);
     expect(secondRun).toEqual([]);
     expect(database.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM sites").get()?.count).toBe(1);
-    expect(database.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM schema_migrations").get()?.count).toBe(3);
+    expect(database.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM schema_migrations").get()?.count).toBe(4);
     expect(database.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM schedule_templates").get()?.count).toBe(0);
     expect(database.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM roster_assignments").get()?.count).toBe(0);
+    expect(database.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM employee_schedule_profiles").get()?.count).toBe(0);
+    expect(database.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM attendance_evaluations").get()?.count).toBe(0);
     database.close();
   });
 

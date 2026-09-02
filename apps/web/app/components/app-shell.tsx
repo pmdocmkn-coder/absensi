@@ -30,6 +30,7 @@ const adminNavigation: NavigationItem[] = [
   { href: "/admin", label: "Dashboard admin", shortLabel: "DA" },
   { href: "/admin/roster", label: "Kalender roster", shortLabel: "KR" },
   { href: "/admin/karyawan", label: "Data karyawan", shortLabel: "DK" },
+  { href: "/admin/kehadiran", label: "Verifikasi absensi", shortLabel: "VA" },
   { href: "/admin/pengaturan-jam", label: "Pengaturan jam", shortLabel: "PJ" },
   { href: "/admin/perangkat", label: "Perangkat X105", shortLabel: "X1" }
 ];

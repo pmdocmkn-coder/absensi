@@ -6,6 +6,7 @@ Aplikasi absensi full TypeScript untuk menerima scan Solution X105 melalui ADMS,
 
 - `apps/api`: receiver ADMS, REST API, autentikasi, dan SQLite berbasis Bun + Elysia + Drizzle.
 - `apps/web`: dashboard Next.js bertema Neo-Brutalism.
+- Mesin evaluasi harian: mengubah roster, profil kerja, dan scan X105 menjadi status otomatis yang tetap dapat dikonfirmasi admin.
 - `apps/api/src/simulator.ts`: simulator scan untuk tes tanpa mesin.
 - `apps/api/src/db/migrations`: migrasi database yang berurutan dan aman dijalankan ulang.
 
@@ -91,14 +92,26 @@ Endpoint `/iclock/*` menangkap keluarga protokol push/ADMS yang umum. Endpoint `
 - `GET/POST/PATCH /api/schedule-templates`
 - `GET/POST/PATCH/DELETE /api/roster`
 - `GET /api/attendance`
+- `GET /api/attendance/daily?from=YYYY-MM-DD&to=YYYY-MM-DD`: hasil status harian. Karyawan hanya melihat miliknya sendiri.
+- `GET /api/schedule-profiles`, `PUT /api/schedule-profiles/:employeeId`: profil kerja reguler untuk Steady Day.
+- `PATCH /api/attendance/daily/:employeeId/:date/confirm`: konfirmasi atau koreksi status oleh admin.
 
 ## Urutan konfigurasi admin pertama
 
 1. Jalankan `seed:admin`, kemudian masuk melalui `/login`.
 2. Buka **Pengaturan jam** dan buat template sesuai kebijakan perusahaan, misalnya `STEADY_DAY`, `SHIFT_PAGI`, dan `SHIFT_MALAM`. Jam tidak diisi otomatis agar tidak salah dengan aturan perusahaan Anda.
 3. Buka **Data karyawan** untuk memeriksa mapping PIN dan alat X105. Lengkapi departemen serta mapping melalui API atau impor master data.
-4. Buka **Kalender roster** untuk menambahkan jadwal reguler. Tambahkan `ON_CALL` atau `OVERTIME` sebagai overlay bila diperlukan. Untuk `OFF` dan `LEAVE`, pilih tanpa template.
-5. Setelah roster terisi, tahap berikutnya adalah menjalankan rules engine untuk menghitung status harian dari scan X105 dan roster.
+4. Untuk karyawan **Steady Day**, buka **Data karyawan**, pilih template regulernya, lalu tekan **Tetapkan**. Nilai awalnya Senin–Jumat, buffer lembur 15 menit, dan scan Sabtu/Minggu otomatis ditandai lembur. Roster harian selalu mengalahkan profil ini.
+5. Buka **Kalender roster** untuk menambahkan jadwal reguler. Tambahkan `ON_CALL` atau `OVERTIME` sebagai overlay bila diperlukan. Untuk `OFF` dan `LEAVE`, pilih tanpa template.
+6. Buka **Verifikasi absensi**. Sistem menampilkan hasil otomatis; admin cukup mengonfirmasi atau mengubah kasus seperti scan saat cuti/off, scan tanpa jadwal, dan lembur/on-call khusus.
+
+### Aturan otomatis saat ini
+
+- Shift Pagi, Shift Malam, dan Steady Day memakai template jam yang dipilih di roster. Shift malam dapat diberi tanda **selesai hari berikutnya**.
+- Scan pertama adalah kandidat masuk; scan terakhir adalah kandidat keluar. Kedatangan melewati `toleransi terlambat` dihitung dalam menit.
+- Scan sebelum atau sesudah jam template lebih dari `buffer lembur` menjadi `OVERTIME` otomatis.
+- Roster `OFF`/`LEAVE` tanpa scan menjadi status tersebut. Jika tetap ada scan, hasilnya `NEEDS_REVIEW` agar admin tidak kehilangan kasus penting.
+- `ON_CALL` merupakan overlay: layar menampilkan badge on-call bersama hasil hadir/terlambat/lembur. Jika hanya ada on-call tanpa jadwal reguler dan terdapat scan, hasil utamanya `ON_CALL`.
 
 ## Pemeriksaan proyek
 
@@ -109,7 +122,7 @@ bun --filter @attendance/api test
 
 ## Roadmap berikutnya
 
-1. Mesin aturan harian untuk menentukan check-in, check-out, terlambat, hadir, alfa, dan konflik jadwal.
-2. Layar edit master karyawan dan impor data massal dari dashboard.
-3. Pengajuan dan persetujuan cuti.
-4. Monitoring perangkat, cursor ADMS, serta rekonsiliasi backlog.
+1. Layar edit master karyawan dan impor data massal dari dashboard.
+2. Pengajuan dan persetujuan cuti.
+3. Monitoring perangkat, cursor ADMS, serta rekonsiliasi backlog.
+4. Laporan periode dan ekspor payroll.

@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { LiveAttendance } from "./components/live-attendance";
-import { Metric } from "./components/metric";
 import { PageHeader } from "./components/page-header";
 import { StatusBadge } from "./components/status-badge";
+import { TodayAttendance } from "./components/today-attendance";
 
 export default function EmployeeDashboardPage() {
   return (
@@ -10,15 +10,9 @@ export default function EmployeeDashboardPage() {
       <PageHeader
         title="Selamat bekerja, Pandu."
         description="Ringkasan absensi dan jadwal kerja Anda hari ini."
-        action={<StatusBadge tone="pending">Data jadwal belum aktif</StatusBadge>}
+        action={<StatusBadge tone="on-time">Evaluasi otomatis aktif</StatusBadge>}
       />
-
-      <section className="metric-grid" aria-label="Ringkasan hari ini">
-        <Metric label="Status hari ini" value="Menunggu jadwal" note="Aturan absensi belum dikonfigurasi" emphasis />
-        <Metric label="Waktu masuk" value="-" note="Belum dihitung" />
-        <Metric label="Waktu keluar" value="-" note="Belum dihitung" />
-        <Metric label="Jadwal" value="-" note="Steady day atau shift" />
-      </section>
+      <TodayAttendance />
 
       <section className="dashboard-grid">
         <article className="panel panel-live">
@@ -40,8 +34,8 @@ export default function EmployeeDashboardPage() {
             </div>
           </div>
           <div className="schedule-placeholder">
-            <strong>Belum ada jadwal terbit</strong>
-            <p>Admin perlu menerbitkan roster sebelum status kehadiran dapat dihitung.</p>
+            <strong>Roster mengalahkan profil</strong>
+            <p>Jika ada roster harian, itu dipakai. Profil Steady Day menjadi aturan reguler Senin–Jumat.</p>
           </div>
           <dl className="definition-list">
             <div><dt>On-call</dt><dd>Tidak terjadwal</dd></div>

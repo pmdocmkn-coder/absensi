@@ -6,6 +6,7 @@ let app: Awaited<typeof import("./app")>["app"];
 let adminCookie = "";
 let employeeCookie = "";
 let employeeId = 0;
+let steadyDayTemplateId = "";
 
 function jsonRequest(path: string, method: string, body?: unknown, cookie?: string) {
   return new Request(`http://localhost${path}`, {
@@ -128,6 +129,7 @@ describe("authentication and master-data API", () => {
     const template = await templateResponse.json() as { id: string; code: string };
     expect(templateResponse.status).toBe(201);
     expect(template.code).toBe("STEADY_DAY");
+    steadyDayTemplateId = template.id;
 
     const regularResponse = await app.handle(jsonRequest("/api/roster", "POST", {
       employeeId,
@@ -144,6 +146,53 @@ describe("authentication and master-data API", () => {
       notes: "Cadangan setelah jam kerja"
     }, adminCookie));
     expect(onCallResponse.status).toBe(201);
+  });
+
+  test("evaluates Steady Day and weekend scans automatically, then lets admin confirm", async () => {
+    const profileResponse = await app.handle(jsonRequest(`/api/schedule-profiles/${employeeId}`, "PUT", {
+      scheduleTemplateId: steadyDayTemplateId,
+      workdays: [1, 2, 3, 4, 5],
+      autoWeekendOvertime: true,
+      overtimeBufferMinutes: 15
+    }, adminCookie));
+    expect(profileResponse.status).toBe(200);
+
+    const mappingResponse = await app.handle(jsonRequest(`/api/employees/${employeeId}`, "PATCH", {
+      deviceMappings: [{ deviceSerial: "X105-RULES", deviceUserCode: "EMP-001" }]
+    }, adminCookie));
+    expect(mappingResponse.status).toBe(200);
+
+    const uploadResponse = await app.handle(new Request("http://localhost/iclock/cdata?SN=X105-RULES&table=ATTLOG", {
+      method: "POST",
+      body: [
+        "EMP-001\t2026-08-30 09:00:00\t0\t1",
+        "EMP-001\t2026-08-30 17:00:00\t0\t1",
+        "EMP-001\t2026-08-31 08:05:00\t0\t1",
+        "EMP-001\t2026-08-31 17:45:00\t0\t1"
+      ].join("\n")
+    }));
+    expect(uploadResponse.status).toBe(200);
+
+    const dailyResponse = await app.handle(jsonRequest(
+      `/api/attendance/daily?from=2026-08-30&to=2026-08-31&employeeId=${employeeId}`,
+      "GET",
+      undefined,
+      adminCookie
+    ));
+    const dailyPayload = await dailyResponse.json() as { records: Array<{ attendanceDate: string; autoStatus: string; overtimeMinutes: number }> };
+    expect(dailyResponse.status).toBe(200);
+    expect(dailyPayload.records.find((record) => record.attendanceDate === "2026-08-30")?.autoStatus).toBe("OVERTIME");
+    expect(dailyPayload.records.find((record) => record.attendanceDate === "2026-08-31")?.autoStatus).toBe("OVERTIME");
+    expect(dailyPayload.records.find((record) => record.attendanceDate === "2026-08-31")?.overtimeMinutes).toBe(30);
+
+    const confirmationResponse = await app.handle(jsonRequest(`/api/attendance/daily/${employeeId}/2026-08-30/confirm`, "PATCH", {
+      status: "OVERTIME",
+      note: "Disetujui supervisor"
+    }, adminCookie));
+    const confirmation = await confirmationResponse.json() as { confirmationState: string; confirmationNote: string | null };
+    expect(confirmationResponse.status).toBe(200);
+    expect(confirmation.confirmationState).toBe("CONFIRMED");
+    expect(confirmation.confirmationNote).toBe("Disetujui supervisor");
   });
 
   test("reports duplicate employee code as conflict", async () => {

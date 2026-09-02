@@ -5,6 +5,7 @@ import { enrichEventsWithEmployeeNames, getAttendanceByRange, getAttendanceCount
 import { AppError } from "./errors";
 import { parseDeviceRequest } from "./parser";
 import { authRoutes } from "./routes/auth";
+import { attendanceRulesRoutes } from "./routes/attendance-rules";
 import { masterDataRoutes } from "./routes/master-data";
 import { schedulingRoutes } from "./routes/scheduling";
 import { addEvents, clearEvents, listEvents } from "./store";
@@ -31,6 +32,7 @@ export const app = new Elysia()
   .use(authRoutes)
   .use(masterDataRoutes)
   .use(schedulingRoutes)
+  .use(attendanceRulesRoutes)
   .get("/health", () => ({ status: "ok", time: new Date().toISOString() }))
   .get("/api/events", ({ request, query }) => {
     requirePermission(request, "VIEW_ATTENDANCE");
