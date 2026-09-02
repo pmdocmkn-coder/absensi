@@ -1,0 +1,16 @@
+{
+  "name": "x105-attendance",
+  "private": true,
+  "packageManager": "bun@1.2.23",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter '*' dev",
+    "dev:api": "bun --filter @attendance/api dev",
+    "dev:web": "bun --filter @attendance/web dev",
+    "simulate": "bun --filter @attendance/api simulate",
+    "typecheck": "bun run --filter '*' typecheck"
+  }
+}
