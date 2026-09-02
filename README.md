@@ -1,14 +1,13 @@
-# X105 Attendance
+# AbsenKita - Solution X105 Attendance
 
-Starter full TypeScript untuk menguji integrasi real-time Solution X105 melalui ADMS.
+Aplikasi absensi full TypeScript untuk menerima scan Solution X105 melalui ADMS, memetakan PIN perangkat ke karyawan, serta menyiapkan pengolahan roster dan status kehadiran.
 
 ## Isi proyek
 
-- `apps/api`: receiver diagnostik ADMS berbasis Bun + Elysia.
-- `apps/web`: dashboard Next.js yang membaca log setiap 2 detik.
+- `apps/api`: receiver ADMS, REST API, autentikasi, dan SQLite berbasis Bun + Elysia + Drizzle.
+- `apps/web`: dashboard Next.js bertema Neo-Brutalism.
 - `apps/api/src/simulator.ts`: simulator scan untuk tes tanpa mesin.
-
-Versi awal menyimpan maksimal 500 log di memori. Ini disengaja agar payload firmware X105 dapat diverifikasi sebelum database dan aturan presensi dibuat.
+- `apps/api/src/db/migrations`: migrasi database yang berurutan dan aman dijalankan ulang.
 
 ## Persiapan
 
@@ -26,10 +25,21 @@ Tutup dan buka terminal, lalu verifikasi dengan `bun --version`.
 cd attendance-app
 Copy-Item .env.example .env
 bun install
+bun --filter @attendance/api db:migrate
 bun run dev
 ```
 
-Buka dashboard di `http://localhost:3000` dan API di `http://localhost:8080/health`.
+API menerima scan X105 tanpa login, tetapi dashboard dan data karyawan dilindungi sesi. Buat akun admin pertama dari PowerShell:
+
+```powershell
+$env:ADMIN_EMAIL="admin@perusahaan.com"
+$env:ADMIN_PASSWORD="GantiDenganPasswordKuat123!"
+$env:ADMIN_NAME="Administrator"
+$env:ADMIN_CODE="ADMIN001"
+bun --filter @attendance/api seed:admin
+```
+
+Buka `http://localhost:3000/login`, lalu masuk dengan email dan password tersebut. API health tersedia di `http://localhost:8080/health`.
 
 Kirim scan simulasi dari terminal lain:
 
@@ -62,11 +72,35 @@ New-NetFirewallRule -DisplayName "X105 ADMS Receiver" -Direction Inbound -Protoc
 
 Endpoint `/iclock/*` menangkap keluarga protokol push/ADMS yang umum. Endpoint `/device/*` menjadi fallback diagnostik. Respons atau rute mungkin perlu disesuaikan setelah request asli firmware X105 diterima.
 
-## Tahap berikutnya
+## Data dan keamanan
 
-Setelah payload nyata berhasil ditangkap:
+- Database lokal berada di `data/attendance.sqlite` dan tidak masuk Git.
+- Migrasi tidak menghapus log presensi lama. Sebelum perubahan besar, tetap salin folder `data` sebagai backup.
+- PIN karyawan dapat berbeda di setiap alat. Relasinya disimpan di tabel `device_users`.
+- Role yang tersedia: `EMPLOYEE`, `SUPERVISOR`, dan `ADMIN`.
+- Password disimpan sebagai hash. Token sesi disimpan sebagai hash dan cookie browser bersifat HttpOnly.
+- Endpoint ADMS tetap terbuka di LAN agar X105 dapat mengirim data. Batasi port 8080 melalui firewall hanya ke jaringan/perangkat yang diperlukan saat deployment.
 
-1. Buat fixture payload dan parser khusus firmware.
-2. Tambahkan PostgreSQL + Drizzle serta deduplikasi log.
-3. Tambahkan karyawan, shift, check-in/check-out, autentikasi, dan role.
-4. Ganti polling dashboard dengan Server-Sent Events bila diperlukan.
+## Endpoint fondasi
+
+- `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/logout`
+- `GET/POST/PATCH /api/sites`
+- `GET/POST/PATCH /api/departments`
+- `GET/POST/PATCH /api/employees`
+- `POST /api/employees/import`
+- `GET /api/attendance`
+
+## Pemeriksaan proyek
+
+```powershell
+bun run typecheck
+bun --filter @attendance/api test
+```
+
+## Roadmap berikutnya
+
+1. CRUD karyawan pada dashboard admin dan impor data massal.
+2. Template jam `SHIFT_PAGI`, `SHIFT_MALAM`, dan `STEADY_DAY`.
+3. Kalender roster terpadu untuk reguler, on-call, cuti, lembur, dan off.
+4. Mesin aturan harian untuk menentukan check-in, check-out, terlambat, hadir, alfa, dan konflik jadwal.
+5. Monitoring perangkat, cursor ADMS, serta rekonsiliasi backlog.

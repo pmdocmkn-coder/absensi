@@ -7,10 +7,14 @@
     "start": "bun src/index.ts",
     "simulate": "bun src/simulator.ts",
     "import:mdb": "bun src/import-mdb.ts",
+    "db:migrate": "bun src/db/migrate-cli.ts",
+    "seed:admin": "bun src/seed-admin.ts",
+    "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@elysiajs/cors": "latest",
+    "drizzle-orm": "^0.45.2",
     "elysia": "latest"
   },
   "devDependencies": {

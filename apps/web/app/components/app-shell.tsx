@@ -2,7 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+
+type AuthUser = {
+  employeeId: number;
+  employeeCode: string;
+  name: string;
+  email: string | null;
+  role: "EMPLOYEE" | "SUPERVISOR" | "ADMIN";
+};
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
 type NavigationItem = {
   href: string;
@@ -76,6 +86,54 @@ function Brand() {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (pathname === "/login") return;
+    const controller = new AbortController();
+    void fetch(`${API_URL}/api/auth/me`, {
+      credentials: "include",
+      cache: "no-store",
+      signal: controller.signal
+    }).then(async (response) => {
+      if (!response.ok) {
+        window.location.replace("/login");
+        return;
+      }
+      const payload = await response.json() as { user: AuthUser };
+      setUser(payload.user);
+    }).catch((error: unknown) => {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setUser(null);
+    });
+    return () => controller.abort();
+  }, [pathname]);
+
+  if (pathname === "/login") return <>{children}</>;
+
+  if (user === undefined) {
+    return (
+      <main className="auth-loading" aria-live="polite">
+        <div className="auth-loading-mark">A</div>
+        <p>Memeriksa sesi...</p>
+      </main>
+    );
+  }
+
+  if (user === null) {
+    return (
+      <main className="auth-loading" role="alert">
+        <div className="auth-loading-mark">!</div>
+        <p>API tidak dapat dihubungi. Pastikan Bun berjalan pada {API_URL}.</p>
+      </main>
+    );
+  }
+
+  const initials = user.name.split(/\s+/).slice(0, 2).map((word) => word[0]).join("").toUpperCase();
+  const logout = async () => {
+    await fetch(`${API_URL}/api/auth/logout`, { method: "POST", credentials: "include" });
+    window.location.replace("/login");
+  };
 
   return (
     <div className="app-shell">
@@ -83,14 +141,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         <Brand />
         <div className="sidebar-navigation">
           <NavigationGroup title="Karyawan" items={employeeNavigation} pathname={pathname} />
-          <NavigationGroup title="Administrasi" items={adminNavigation} pathname={pathname} />
+          {user.role === "ADMIN" && <NavigationGroup title="Administrasi" items={adminNavigation} pathname={pathname} />}
         </div>
         <div className="sidebar-footer">
-          <span className="avatar" aria-hidden="true">PE</span>
+          <span className="avatar" aria-hidden="true">{initials}</span>
           <span>
-            <strong>Pandu Eka</strong>
-            <small>Supervisor</small>
+            <strong>{user.name}</strong>
+            <small>{user.role}</small>
           </span>
+          <button className="logout-button" type="button" onClick={logout}>Keluar</button>
         </div>
       </aside>
 
@@ -101,7 +160,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="mobile-menu-panel">
               <Brand />
               <NavigationGroup title="Karyawan" items={employeeNavigation} pathname={pathname} />
-              <NavigationGroup title="Administrasi" items={adminNavigation} pathname={pathname} />
+              {user.role === "ADMIN" && <NavigationGroup title="Administrasi" items={adminNavigation} pathname={pathname} />}
             </div>
           </details>
           <div className="topbar-context">
@@ -110,7 +169,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           <div className="topbar-user">
             <span className="semantic-dot semantic-dot-online" aria-hidden="true" />
-            Sistem aktif
+            {user.name}
           </div>
         </header>
         <main className="page-content">{children}</main>

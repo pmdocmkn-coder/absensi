@@ -42,6 +42,7 @@ export function LiveAttendance({ limit = 8, compact = false }: { limit?: number;
       try {
         const response = await fetch(`${API_URL}/api/attendance?limit=${limit}`, {
           cache: "no-store",
+          credentials: "include",
           signal: controller.signal
         });
         if (!response.ok) throw new Error("API tidak tersedia");
