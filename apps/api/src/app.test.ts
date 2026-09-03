@@ -232,6 +232,20 @@ describe("authentication and master-data API", () => {
     expect(confirmation.confirmationNote).toBe("Disetujui supervisor");
   });
 
+  test("orders daily attendance by the most recent scan activity", async () => {
+    const response = await app.handle(jsonRequest(
+      "/api/attendance/daily?from=2026-09-01&to=2026-09-01",
+      "GET",
+      undefined,
+      adminCookie
+    ));
+    const payload = await response.json() as { records: Array<{ employeeCode: string; checkInAt: string | null; checkOutAt: string | null }> };
+    expect(response.status).toBe(200);
+    expect(payload.records[0]?.employeeCode).toBe("EMP-002");
+    expect(payload.records[1]?.employeeCode).toBe("EMP-001");
+    expect(payload.records.at(-1)?.checkInAt).toBeNull();
+  });
+
   test("reports duplicate employee code as conflict", async () => {
     const response = await app.handle(jsonRequest("/api/employees", "POST", {
       employeeCode: "EMP-002",

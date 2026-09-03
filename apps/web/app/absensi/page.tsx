@@ -19,7 +19,7 @@ export default function AttendancePage() {
         <div className="panel-heading">
           <div>
             <h2>Absensi harian karyawan</h2>
-            <p>Data evaluasi diperbarui setiap 30 detik.</p>
+          <p>Aktivitas scan terbaru tampil paling atas dan diperbarui setiap 5 detik.</p>
           </div>
         </div>
         <DailyAttendanceTable />

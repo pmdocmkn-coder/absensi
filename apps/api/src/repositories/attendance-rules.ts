@@ -375,7 +375,15 @@ export function listDailyAttendance(input: { from: string; to: string; employeeI
   for (const employeeId of targetEmployees) {
     for (let date = from; date <= to; date = addDays(date, 1)) results.push(evaluateEmployeeDay(employeeId, date));
   }
-  return results.sort((left, right) => `${right.attendanceDate}-${right.employeeName}`.localeCompare(`${left.attendanceDate}-${left.employeeName}`));
+  return results.sort((left, right) => {
+    const leftActivity = left.checkOutAt ?? left.checkInAt;
+    const rightActivity = right.checkOutAt ?? right.checkInAt;
+    if (leftActivity && rightActivity) return rightActivity.localeCompare(leftActivity);
+    if (leftActivity) return -1;
+    if (rightActivity) return 1;
+    if (left.attendanceDate !== right.attendanceDate) return right.attendanceDate.localeCompare(left.attendanceDate);
+    return left.employeeName.localeCompare(right.employeeName, "id-ID");
+  });
 }
 
 export function upsertScheduleProfile(input: ProfileInput) {

@@ -35,7 +35,7 @@ export function DailyAttendanceTable() {
     const controller = new AbortController();
     setLoading(true);
     void load(controller.signal);
-    const timer = window.setInterval(() => void load(controller.signal), 30_000);
+    const timer = window.setInterval(() => void load(controller.signal), 5_000);
     return () => { controller.abort(); window.clearInterval(timer); };
   }, [load]);
 
