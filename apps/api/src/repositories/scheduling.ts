@@ -1,10 +1,12 @@
-import { and, asc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
 import { db } from "../db/connection";
 import {
   departments,
   employees,
+  rosterBackupAssignments,
   rosterAssignments,
   scheduleTemplates,
+  type RosterBackupReason,
   type RosterAssignmentType,
   type ScheduleTemplateKind
 } from "../db/schema";
@@ -31,6 +33,20 @@ export type CreateRosterAssignmentInput = {
 };
 
 export type UpdateRosterAssignmentInput = Partial<Omit<CreateRosterAssignmentInput, "employeeId">>;
+
+export type BulkRosterAssignmentInput = CreateRosterAssignmentInput;
+
+export type CreateRosterBackupInput = {
+  coveredEmployeeId: number;
+  backupEmployeeId: number;
+  startDate: string;
+  endDate: string;
+  reason: RosterBackupReason;
+  reasonDetails?: string | null;
+  notes?: string | null;
+};
+
+const BACKUP_REASONS: RosterBackupReason[] = ["LEAVE", "SICK", "PERMISSION", "TRAINING", "OUT_OF_OFFICE", "STAFFING", "OTHER"];
 
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -168,6 +184,51 @@ export function listRoster(input: { from: string; to: string; employeeId?: numbe
     .all();
 }
 
+export function listRosterBackups(input: { from: string; to: string }) {
+  const from = ensureDate(input.from);
+  const to = ensureDate(input.to);
+  if (from > to) throw new ValidationError("Tanggal mulai tidak boleh melebihi tanggal akhir");
+  return db.select().from(rosterBackupAssignments)
+    .where(and(lte(rosterBackupAssignments.startDate, to), gte(rosterBackupAssignments.endDate, from)))
+    .orderBy(asc(rosterBackupAssignments.startDate), asc(rosterBackupAssignments.endDate))
+    .all();
+}
+
+export function createRosterBackup(input: CreateRosterBackupInput, createdByEmployeeId: number) {
+  const startDate = ensureDate(input.startDate);
+  const endDate = ensureDate(input.endDate);
+  if (startDate > endDate) throw new ValidationError("Tanggal akhir backup tidak boleh sebelum tanggal mulai");
+  if (input.coveredEmployeeId === input.backupEmployeeId) throw new ValidationError("Karyawan backup harus berbeda dari karyawan yang digantikan");
+  if (!BACKUP_REASONS.includes(input.reason)) throw new ValidationError("Alasan backup tidak valid");
+  if (input.reason === "OTHER" && !input.reasonDetails?.trim()) throw new ValidationError("Jelaskan alasan saat memilih Lainnya");
+  const targets = db.select({ id: employees.id, isActive: employees.isActive }).from(employees)
+    .where(inArray(employees.id, [input.coveredEmployeeId, input.backupEmployeeId])).all();
+  if (targets.length !== 2 || targets.some((employee) => !employee.isActive)) {
+    throw new NotFoundError("Karyawan pengganti atau yang digantikan tidak aktif");
+  }
+  const now = new Date().toISOString();
+  return db.insert(rosterBackupAssignments).values({
+    id: crypto.randomUUID(),
+    coveredEmployeeId: input.coveredEmployeeId,
+    backupEmployeeId: input.backupEmployeeId,
+    startDate,
+    endDate,
+    reason: input.reason,
+    reasonDetails: input.reasonDetails?.trim() || null,
+    notes: input.notes?.trim() || null,
+    createdByEmployeeId,
+    createdAt: now,
+    updatedAt: now
+  }).returning().get();
+}
+
+export function deleteRosterBackup(id: string) {
+  const deleted = db.delete(rosterBackupAssignments).where(eq(rosterBackupAssignments.id, id))
+    .returning({ id: rosterBackupAssignments.id }).get();
+  if (!deleted) throw new NotFoundError("Penugasan backup tidak ditemukan");
+  return { success: true };
+}
+
 function getRosterAssignment(id: string) {
   const record = db.select().from(rosterAssignments).where(eq(rosterAssignments.id, id)).get();
   if (!record) throw new NotFoundError("Penugasan roster tidak ditemukan");
@@ -193,6 +254,82 @@ export function createRosterAssignment(input: CreateRosterAssignmentInput, creat
   } catch (error) {
     databaseError(error);
   }
+}
+
+export function bulkUpsertRosterAssignments(inputs: BulkRosterAssignmentInput[], createdByEmployeeId: number, replaceBaseSchedule = false) {
+  if (inputs.length === 0) throw new ValidationError("Pilih minimal satu sel roster");
+  const normalized = inputs.map((input) => {
+    const assignmentDate = ensureDate(input.assignmentDate);
+    validateAssignment(input);
+    return {
+      ...input,
+      assignmentDate,
+      scheduleTemplateId: input.scheduleTemplateId ?? null,
+      notes: input.notes ? text(input.notes) : null
+    };
+  });
+  const keys = normalized.map((input) => `${input.employeeId}|${input.assignmentDate}|${input.assignmentType}`);
+  if (new Set(keys).size !== keys.length) throw new ValidationError("Pilihan roster memuat sel yang sama lebih dari sekali");
+
+  try {
+    return db.transaction((tx) => {
+      const now = new Date().toISOString();
+      let created = 0;
+      let updated = 0;
+      const records = normalized.map((input) => {
+        if (replaceBaseSchedule && (input.assignmentType === "REGULAR" || input.assignmentType === "OFF")) {
+          tx.delete(rosterAssignments).where(and(
+            eq(rosterAssignments.employeeId, input.employeeId),
+            eq(rosterAssignments.assignmentDate, input.assignmentDate),
+            inArray(rosterAssignments.assignmentType, ["REGULAR", "OFF"])
+          )).run();
+        }
+        const existing = tx.select({ id: rosterAssignments.id }).from(rosterAssignments).where(and(
+          eq(rosterAssignments.employeeId, input.employeeId),
+          eq(rosterAssignments.assignmentDate, input.assignmentDate),
+          eq(rosterAssignments.assignmentType, input.assignmentType)
+        )).get();
+        if (existing) {
+          updated += 1;
+          return tx.update(rosterAssignments).set({
+            scheduleTemplateId: input.scheduleTemplateId,
+            notes: input.notes,
+            updatedAt: now
+          }).where(eq(rosterAssignments.id, existing.id)).returning().get();
+        }
+        created += 1;
+        return tx.insert(rosterAssignments).values({
+          id: crypto.randomUUID(),
+          employeeId: input.employeeId,
+          assignmentDate: input.assignmentDate,
+          assignmentType: input.assignmentType,
+          scheduleTemplateId: input.scheduleTemplateId,
+          notes: input.notes,
+          createdByEmployeeId,
+          createdAt: now,
+          updatedAt: now
+        }).returning().get();
+      });
+      return { success: true, count: records.length, created, updated, records };
+    });
+  } catch (error) {
+    if (error instanceof ValidationError) throw error;
+    databaseError(error);
+  }
+}
+
+export function bulkDeleteRosterAssignments(ids: string[]) {
+  if (ids.length === 0) throw new ValidationError("Tidak ada penugasan roster yang dipilih");
+  const uniqueIds = [...new Set(ids)];
+  if (uniqueIds.length !== ids.length) throw new ValidationError("Daftar penugasan memuat ID yang sama lebih dari sekali");
+  return db.transaction((tx) => {
+    for (const id of uniqueIds) {
+      const existing = tx.select({ id: rosterAssignments.id }).from(rosterAssignments).where(eq(rosterAssignments.id, id)).get();
+      if (!existing) throw new NotFoundError("Salah satu penugasan roster tidak ditemukan; tidak ada data yang dihapus");
+    }
+    for (const id of uniqueIds) tx.delete(rosterAssignments).where(eq(rosterAssignments.id, id)).run();
+    return { success: true, count: uniqueIds.length };
+  });
 }
 
 export function updateRosterAssignment(id: string, input: UpdateRosterAssignmentInput) {

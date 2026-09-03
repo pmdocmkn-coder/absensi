@@ -11,6 +11,7 @@ export type DailyAttendance = {
   confirmationState: "AUTO" | "CONFIRMED";
   checkInAt: string | null;
   checkOutAt: string | null;
+  lastScanAt: string | null;
   scheduledStartAt: string | null;
   scheduledEndAt: string | null;
   scheduleCode: string | null;
@@ -66,4 +67,8 @@ export function witaDate() {
 
 export function shortTime(value: string | null) {
   return value?.slice(11, 16) ?? "Belum ada";
+}
+
+export function formatScanTime(value: string | null) {
+  return value?.slice(11, 19) ?? "Belum ada";
 }

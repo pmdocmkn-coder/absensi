@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { attendanceLabel, attendanceTone, shortTime, type DailyAttendance, witaDate } from "./attendance-display";
+import { attendanceLabel, attendanceTone, formatScanTime, shortTime, type DailyAttendance, witaDate } from "./attendance-display";
 import { StatusBadge } from "./status-badge";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
@@ -73,15 +73,17 @@ export function DailyAttendanceTable() {
     {!loading && filtered.length === 0 ? <div className="feedback-state"><strong>Tidak ada data yang cocok.</strong><p>Ubah tanggal, pencarian, atau filter status.</p></div> : null}
     {!loading && filtered.length > 0 ? <div className="table-wrap attendance-table-wrap"><table className="attendance-detail-table">
       <thead><tr><th>Karyawan</th><th>Departemen</th><th>Jadwal</th><th>Masuk</th><th>Keluar</th><th>Status terkini</th><th>Keterangan / sensor</th></tr></thead>
-      <tbody>{filtered.map((record) => <tr key={`${record.employeeId}-${record.attendanceDate}`}>
-        <td><strong className="table-primary">{record.employeeName}</strong><small className="table-secondary">ID {record.employeeCode}</small></td>
-        <td>{record.departmentName ?? <span className="muted-value">Belum dipetakan</span>}</td>
-        <td>{record.scheduleCode ? <><code>{record.scheduleCode}</code><small className="table-secondary">{record.scheduledStartAt ? `${shortTime(record.scheduledStartAt)} - ${shortTime(record.scheduledEndAt)}` : record.scheduleName}</small></> : <span className="muted-value">Belum ada jadwal</span>}</td>
-        <td><strong className={record.checkInAt ? "time-chip time-in" : "time-empty"}>{shortTime(record.checkInAt)}</strong>{record.lateMinutes > 0 ? <small className="table-secondary">+{record.lateMinutes} menit</small> : null}</td>
-        <td><strong className={record.checkOutAt ? "time-chip time-out" : "time-empty"}>{shortTime(record.checkOutAt)}</strong>{record.earlyLeaveMinutes > 0 ? <small className="table-secondary">Pulang cepat {record.earlyLeaveMinutes} menit</small> : null}</td>
-        <td><StatusBadge tone={attendanceTone(record.status)}>{attendanceLabel(record.status)}</StatusBadge>{record.hasOnCall ? <small className="table-secondary"><StatusBadge tone="on-call">ON-CALL</StatusBadge></small> : null}</td>
-        <td className="detail-cell"><strong>{record.notes[0] ?? "Belum ada keterangan"}</strong><small>{record.notes.slice(1).join(" · ") || `${record.scanCount} scan X105`} · {record.confirmationState === "CONFIRMED" ? "Dikonfirmasi admin" : "Otomatis"}</small></td>
-      </tr>)}</tbody>
+      <tbody>{filtered.map((record) => (
+        <tr key={`${record.employeeId}-${record.attendanceDate}`}>
+          <td><strong className="table-primary">{record.employeeName}</strong><small className="table-secondary">ID {record.employeeCode}</small></td>
+          <td>{record.departmentName ?? <span className="muted-value">Belum dipetakan</span>}</td>
+          <td>{record.scheduleCode ? <><code>{record.scheduleCode}</code><small className="table-secondary">{record.scheduledStartAt ? `${shortTime(record.scheduledStartAt)} - ${shortTime(record.scheduledEndAt)}` : record.scheduleName}</small></> : <span className="muted-value">Belum ada jadwal</span>}</td>
+          <td><strong className={record.checkInAt ? "time-chip time-in" : "time-empty"} title={record.checkInAt ?? undefined}>{formatScanTime(record.checkInAt)}</strong>{record.lateMinutes > 0 ? <small className="table-secondary">+{record.lateMinutes} menit</small> : null}</td>
+          <td><strong className={record.checkOutAt ? "time-chip time-out" : "time-empty"} title={record.checkOutAt ?? undefined}>{formatScanTime(record.checkOutAt)}</strong>{record.earlyLeaveMinutes > 0 ? <small className="table-secondary">Pulang cepat {record.earlyLeaveMinutes} menit</small> : null}</td>
+          <td><StatusBadge tone={attendanceTone(record.status)}>{attendanceLabel(record.status)}</StatusBadge>{record.hasOnCall ? <small className="table-secondary"><StatusBadge tone="on-call">ON-CALL</StatusBadge></small> : null}</td>
+          <td className="detail-cell"><strong>{record.notes[0] ?? "Belum ada keterangan"}</strong><small>{record.notes.slice(1).join(" · ") || `${record.scanCount} scan X105`} · {record.confirmationState === "CONFIRMED" ? "Dikonfirmasi admin" : "Otomatis"}</small></td>
+        </tr>
+      ))}</tbody>
     </table></div> : null}
   </>;
 }

@@ -10,7 +10,8 @@
   "dependencies": {
     "next": "latest",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "read-excel-file": "^9.3.10"
   },
   "devDependencies": {
     "@types/node": "latest",

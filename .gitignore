@@ -1,9 +1,15 @@
 node_modules
 .next
+.next-build
+.next-stale-chunks
 .env
 .env.local
 dist
 *.log
 *.tsbuildinfo
+.bun-cache/
+.codex-tmp/
 data/*
 !data/.gitkeep
+.vscode/
+

@@ -111,6 +111,141 @@ describe("authentication and master-data API", () => {
     expect(employee.deviceMappings[0]?.deviceUserCode).toBe("2002");
   });
 
+  test("imports employee setup by PIN and configures roster crew atomically", async () => {
+    const rawEmployeeResponse = await app.handle(jsonRequest("/api/employees", "POST", {
+      employeeCode: "9090",
+      name: "9090",
+      email: "import-preserved@example.test",
+      role: "SUPERVISOR",
+      siteId: "site-default",
+      deviceMappings: [{ deviceSerial: "X105-IMPORT", deviceUserCode: "9090" }]
+    }, adminCookie));
+    expect(rawEmployeeResponse.status).toBe(201);
+
+    const importResponse = await app.handle(jsonRequest("/api/employees/import-setup", "POST", {
+      records: [{
+        employeeCode: "PIT-9090",
+        name: "Nama Mapping Diperbarui",
+        departmentCode: "PIT",
+        departmentName: "Pit Crew",
+        deviceSerial: "X105-IMPORT",
+        deviceUserCode: "9090",
+        rosterGroup: "Crew A"
+      }]
+    }, adminCookie));
+    const report = await importResponse.json() as { created: number; updated: number; rosterConfigured: number };
+    expect(importResponse.status).toBe(200);
+    expect(report.created).toBe(0);
+    expect(report.updated).toBe(1);
+    expect(report.rosterConfigured).toBe(1);
+
+    const employeesResponse = await app.handle(jsonRequest("/api/employees", "GET", undefined, adminCookie));
+    const employeePayload = await employeesResponse.json() as { records: Array<{ id: number; employeeCode: string; name: string; departmentName: string; email: string; role: string }> };
+    const imported = employeePayload.records.find((employee) => employee.employeeCode === "PIT-9090");
+    expect(imported?.name).toBe("Nama Mapping Diperbarui");
+    expect(imported?.departmentName).toBe("Pit Crew");
+    expect(imported?.email).toBe("import-preserved@example.test");
+    expect(imported?.role).toBe("SUPERVISOR");
+
+    const modesResponse = await app.handle(jsonRequest("/api/employee-work-modes", "GET", undefined, adminCookie));
+    const modesPayload = await modesResponse.json() as { records: Array<{ employeeId: number; mode: string; rosterGroup: string }> };
+    expect(modesPayload.records.find((mode) => mode.employeeId === imported?.id)).toMatchObject({ mode: "ROSTER", rosterGroup: "Crew A" });
+  });
+
+  test("rolls back the entire employee setup import when one row conflicts", async () => {
+    const response = await app.handle(jsonRequest("/api/employees/import-setup", "POST", {
+      records: [
+        { employeeCode: "ROLLBACK-IMPORT", name: "Tidak Boleh Tersimpan" },
+        { employeeCode: "PIT-9090", name: "Konflik", deviceSerial: "X105-TEST", deviceUserCode: "2002" }
+      ]
+    }, adminCookie));
+    expect(response.status).toBe(409);
+
+    const employeesResponse = await app.handle(jsonRequest("/api/employees", "GET", undefined, adminCookie));
+    const payload = await employeesResponse.json() as { records: Array<{ employeeCode: string }> };
+    expect(payload.records.some((employee) => employee.employeeCode === "ROLLBACK-IMPORT")).toBe(false);
+  });
+
+  test("applies one work profile to multiple employees atomically", async () => {
+    const departmentResponse = await app.handle(jsonRequest("/api/departments", "POST", {
+      siteId: "site-default",
+      code: "BULK-PIT",
+      name: "Pit Crew Bulk"
+    }, adminCookie));
+    const department = await departmentResponse.json() as { id: string };
+    expect(departmentResponse.status).toBe(201);
+    const created = await Promise.all(["A", "B"].map(async (suffix) => {
+      const response = await app.handle(jsonRequest("/api/employees", "POST", {
+        employeeCode: `BULK-PROFILE-${suffix}`,
+        name: `Karyawan Profil Massal ${suffix}`,
+        siteId: "site-default"
+      }, adminCookie));
+      return response.json() as Promise<{ id: number }>;
+    }));
+    const templateResponse = await app.handle(jsonRequest("/api/schedule-templates", "GET", undefined, adminCookie));
+    const templatePayload = await templateResponse.json() as { records: Array<{ id: string; code: string }> };
+    const template = templatePayload.records.find((item) => item.code === "STEADY_DAY")!;
+
+    const response = await app.handle(jsonRequest("/api/employee-work-modes/bulk/setup", "PUT", {
+      employeeIds: created.map((employee) => employee.id),
+      mode: "FIXED",
+      departmentId: department.id,
+      role: "SUPERVISOR",
+      profile: { scheduleTemplateId: template.id, workdays: [1, 2, 3, 4, 5], autoWeekendOvertime: true, overtimeBufferMinutes: 15 }
+    }, adminCookie));
+    const report = await response.json() as { total: number };
+    expect(response.status).toBe(200);
+    expect(report.total).toBe(2);
+
+    const employeesResponse = await app.handle(jsonRequest("/api/employees", "GET", undefined, adminCookie));
+    const employeesPayload = await employeesResponse.json() as { records: Array<{ id: number; departmentId: string | null; role: string }> };
+    expect(created.every((employee) => employeesPayload.records.some((record) => record.id === employee.id && record.departmentId === department.id && record.role === "SUPERVISOR"))).toBe(true);
+
+    const failedResponse = await app.handle(jsonRequest("/api/employee-work-modes/bulk/setup", "PUT", {
+      employeeIds: [created[0]!.id, 999999],
+      mode: "NONE"
+    }, adminCookie));
+    expect(failedResponse.status).toBe(404);
+
+    const profilesResponse = await app.handle(jsonRequest("/api/schedule-profiles", "GET", undefined, adminCookie));
+    const profilesPayload = await profilesResponse.json() as { records: Array<{ employeeId: number }> };
+    expect(created.every((employee) => profilesPayload.records.some((profile) => profile.employeeId === employee.id))).toBe(true);
+  });
+
+  test("applies Steady Day automatically to a non-PIT department without an individual profile", async () => {
+    const departmentResponse = await app.handle(jsonRequest("/api/departments", "POST", {
+      siteId: "site-default",
+      code: "AUTO-OPS",
+      name: "Operasional Otomatis"
+    }, adminCookie));
+    const department = await departmentResponse.json() as { id: string };
+    expect(departmentResponse.status).toBe(201);
+
+    const employeeResponse = await app.handle(jsonRequest("/api/employees", "POST", {
+      employeeCode: "EMP-AUTO-STEADY",
+      name: "Karyawan Steady Otomatis",
+      siteId: "site-default",
+      departmentId: department.id,
+      deviceMappings: [{ deviceSerial: "X105-AUTO-STEADY", deviceUserCode: "auto-steady" }]
+    }, adminCookie));
+    const employee = await employeeResponse.json() as { id: number };
+    expect(employeeResponse.status).toBe(201);
+    expect(employee.id).toBeGreaterThan(0);
+
+    const uploadResponse = await app.handle(new Request("http://localhost/iclock/cdata?SN=X105-AUTO-STEADY&table=ATTLOG", {
+      method: "POST",
+      body: "auto-steady\t2026-08-28 08:05:00\t0\t1"
+    }));
+    expect(uploadResponse.status).toBe(200);
+
+    const dailyResponse = await app.handle(jsonRequest(`/api/attendance/daily?from=2026-08-28&to=2026-08-28&employeeId=${employee.id}`, "GET", undefined, adminCookie));
+    const payload = await dailyResponse.json() as { records: Array<{ scheduleCode: string | null; autoStatus: string; notes: string[] }> };
+    expect(dailyResponse.status).toBe(200);
+    expect(payload.records[0]?.scheduleCode).toBe("STEADY_DAY");
+    expect(payload.records[0]?.autoStatus).toBe("NEEDS_REVIEW");
+    expect(payload.records[0]?.notes).toContain("Steady Day otomatis berdasarkan departemen");
+  });
+
   test("allows admin to create a regular roster and an on-call overlay", async () => {
     const employeesResponse = await app.handle(jsonRequest("/api/employees", "GET", undefined, adminCookie));
     const employeePayload = await employeesResponse.json() as { records: Array<{ id: number; employeeCode: string }> };
@@ -139,6 +274,70 @@ describe("authentication and master-data API", () => {
       notes: "Cadangan setelah jam kerja"
     }, adminCookie));
     expect(onCallResponse.status).toBe(201);
+  });
+
+  test("saves and clears bulk roster atomically", async () => {
+    const createResponse = await app.handle(jsonRequest("/api/roster/bulk", "POST", {
+      assignments: [
+        { employeeId, assignmentDate: "2026-09-04", assignmentType: "REGULAR", scheduleTemplateId: steadyDayTemplateId },
+        { employeeId, assignmentDate: "2026-09-05", assignmentType: "OFF" }
+      ]
+    }, adminCookie));
+    const created = await createResponse.json() as { count: number; created: number; updated: number; records: Array<{ id: string }> };
+    expect(createResponse.status).toBe(200);
+    expect(created.count).toBe(2);
+    expect(created.created).toBe(2);
+
+    const updateResponse = await app.handle(jsonRequest("/api/roster/bulk", "POST", {
+      assignments: [{ employeeId, assignmentDate: "2026-09-04", assignmentType: "REGULAR", scheduleTemplateId: steadyDayTemplateId, notes: "Diperbarui massal" }]
+    }, adminCookie));
+    const updated = await updateResponse.json() as { created: number; updated: number };
+    expect(updateResponse.status).toBe(200);
+    expect(updated.created).toBe(0);
+    expect(updated.updated).toBe(1);
+
+    const failedCreateResponse = await app.handle(jsonRequest("/api/roster/bulk", "POST", {
+      assignments: [
+        { employeeId, assignmentDate: "2026-09-06", assignmentType: "OFF" },
+        { employeeId: 999999, assignmentDate: "2026-09-06", assignmentType: "OFF" }
+      ]
+    }, adminCookie));
+    expect(failedCreateResponse.status).toBe(400);
+    const afterFailedCreate = await app.handle(jsonRequest(`/api/roster?from=2026-09-06&to=2026-09-06&employeeId=${employeeId}`, "GET", undefined, adminCookie));
+    const afterFailedCreatePayload = await afterFailedCreate.json() as { records: unknown[] };
+    expect(afterFailedCreatePayload.records).toHaveLength(0);
+
+    const failedDeleteResponse = await app.handle(jsonRequest("/api/roster/bulk", "DELETE", {
+      ids: [created.records[0]!.id, "roster-does-not-exist"]
+    }, adminCookie));
+    expect(failedDeleteResponse.status).toBe(404);
+    const afterFailedDelete = await app.handle(jsonRequest(`/api/roster?from=2026-09-04&to=2026-09-05&employeeId=${employeeId}`, "GET", undefined, adminCookie));
+    const afterFailedDeletePayload = await afterFailedDelete.json() as { records: unknown[] };
+    expect(afterFailedDeletePayload.records).toHaveLength(2);
+
+    const deleteResponse = await app.handle(jsonRequest("/api/roster/bulk", "DELETE", {
+      ids: created.records.map((record) => record.id)
+    }, adminCookie));
+    const deleted = await deleteResponse.json() as { count: number };
+    expect(deleteResponse.status).toBe(200);
+    expect(deleted.count).toBe(2);
+
+    const baseResponse = await app.handle(jsonRequest("/api/roster/bulk", "POST", {
+      assignments: [{ employeeId, assignmentDate: "2026-09-07", assignmentType: "REGULAR", scheduleTemplateId: steadyDayTemplateId }],
+      replaceBaseSchedule: true
+    }, adminCookie));
+    expect(baseResponse.status).toBe(200);
+    const replacementResponse = await app.handle(jsonRequest("/api/roster/bulk", "POST", {
+      assignments: [{ employeeId, assignmentDate: "2026-09-07", assignmentType: "OFF" }],
+      replaceBaseSchedule: true
+    }, adminCookie));
+    const replacement = await replacementResponse.json() as { records: Array<{ id: string }> };
+    expect(replacementResponse.status).toBe(200);
+    const replacedRosterResponse = await app.handle(jsonRequest(`/api/roster?from=2026-09-07&to=2026-09-07&employeeId=${employeeId}`, "GET", undefined, adminCookie));
+    const replacedRoster = await replacedRosterResponse.json() as { records: Array<{ assignmentType: string }> };
+    expect(replacedRoster.records).toHaveLength(1);
+    expect(replacedRoster.records[0]?.assignmentType).toBe("OFF");
+    await app.handle(jsonRequest("/api/roster/bulk", "DELETE", { ids: [replacement.records[0]!.id] }, adminCookie));
   });
 
   test("pairs a night-shift check-out on the following day", async () => {

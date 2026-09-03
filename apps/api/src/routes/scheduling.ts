@@ -1,10 +1,15 @@
 import { Elysia, t } from "elysia";
 import { requireAuth, requirePermission } from "../auth";
 import {
+  bulkDeleteRosterAssignments,
+  bulkUpsertRosterAssignments,
+  createRosterBackup,
   createRosterAssignment,
   createScheduleTemplate,
   deleteRosterAssignment,
+  deleteRosterBackup,
   listRoster,
+  listRosterBackups,
   listScheduleTemplates,
   updateRosterAssignment,
   updateScheduleTemplate
@@ -19,6 +24,24 @@ const assignmentTypeSchema = t.Union([
   t.Literal("ON_CALL"),
   t.Literal("OVERTIME")
 ]);
+
+const backupReasonSchema = t.Union([
+  t.Literal("LEAVE"),
+  t.Literal("SICK"),
+  t.Literal("PERMISSION"),
+  t.Literal("TRAINING"),
+  t.Literal("OUT_OF_OFFICE"),
+  t.Literal("STAFFING"),
+  t.Literal("OTHER")
+]);
+
+const rosterAssignmentBody = t.Object({
+  employeeId: t.Integer({ minimum: 1 }),
+  assignmentDate: t.String({ minLength: 10, maxLength: 10 }),
+  assignmentType: assignmentTypeSchema,
+  scheduleTemplateId: t.Optional(t.Nullable(t.String({ minLength: 1, maxLength: 80 }))),
+  notes: t.Optional(t.Nullable(t.String({ maxLength: 1000 })))
+});
 
 const templateBody = {
   code: t.String({ minLength: 1, maxLength: 40 }),
@@ -71,18 +94,55 @@ export const schedulingRoutes = new Elysia({ prefix: "/api" })
       employeeId: t.Optional(t.String({ minLength: 1, maxLength: 20 }))
     })
   })
+  .get("/roster-backups", ({ request, query }) => {
+    requirePermission(request, "VIEW_EMPLOYEES");
+    return { records: listRosterBackups({ from: query.from, to: query.to }) };
+  }, {
+    query: t.Object({
+      from: t.String({ minLength: 10, maxLength: 10 }),
+      to: t.String({ minLength: 10, maxLength: 10 })
+    })
+  })
+  .post("/roster-backups", ({ request, body, set }) => {
+    const auth = requirePermission(request, "MANAGE_MASTER_DATA");
+    set.status = 201;
+    return createRosterBackup(body, auth.employeeId);
+  }, {
+    body: t.Object({
+      coveredEmployeeId: t.Integer({ minimum: 1 }),
+      backupEmployeeId: t.Integer({ minimum: 1 }),
+      startDate: t.String({ minLength: 10, maxLength: 10 }),
+      endDate: t.String({ minLength: 10, maxLength: 10 }),
+      reason: backupReasonSchema,
+      reasonDetails: t.Optional(t.Nullable(t.String({ maxLength: 500 }))),
+      notes: t.Optional(t.Nullable(t.String({ maxLength: 1000 })))
+    })
+  })
+  .delete("/roster-backups/:id", ({ request, params }) => {
+    requirePermission(request, "MANAGE_MASTER_DATA");
+    return deleteRosterBackup(params.id);
+  })
+  .post("/roster/bulk", ({ request, body }) => {
+    const auth = requirePermission(request, "MANAGE_MASTER_DATA");
+    return bulkUpsertRosterAssignments(body.assignments, auth.employeeId, body.replaceBaseSchedule ?? false);
+  }, {
+    body: t.Object({
+      assignments: t.Array(rosterAssignmentBody, { minItems: 1, maxItems: 10000 }),
+      replaceBaseSchedule: t.Optional(t.Boolean())
+    })
+  })
+  .delete("/roster/bulk", ({ request, body }) => {
+    requirePermission(request, "MANAGE_MASTER_DATA");
+    return bulkDeleteRosterAssignments(body.ids);
+  }, {
+    body: t.Object({ ids: t.Array(t.String({ minLength: 1, maxLength: 80 }), { minItems: 1, maxItems: 10000 }) })
+  })
   .post("/roster", ({ request, body, set }) => {
     const auth = requirePermission(request, "MANAGE_MASTER_DATA");
     set.status = 201;
     return createRosterAssignment(body, auth.employeeId);
   }, {
-    body: t.Object({
-      employeeId: t.Integer({ minimum: 1 }),
-      assignmentDate: t.String({ minLength: 10, maxLength: 10 }),
-      assignmentType: assignmentTypeSchema,
-      scheduleTemplateId: t.Optional(t.Nullable(t.String({ minLength: 1, maxLength: 80 }))),
-      notes: t.Optional(t.Nullable(t.String({ maxLength: 1000 })))
-    })
+    body: rosterAssignmentBody
   })
   .patch("/roster/:id", ({ request, params, body }) => {
     requirePermission(request, "MANAGE_MASTER_DATA");

@@ -5,6 +5,8 @@ export type ScheduleTemplateKind = "REGULAR" | "ON_CALL" | "OVERTIME";
 export type RosterAssignmentType = "REGULAR" | "OFF" | "LEAVE" | "ON_CALL" | "OVERTIME";
 export type AttendanceAutoStatus = "PRESENT" | "LATE" | "OVERTIME" | "ON_CALL" | "OFF" | "LEAVE" | "ABSENT" | "PENDING" | "NEEDS_REVIEW" | "NO_SCHEDULE";
 export type AttendanceConfirmedStatus = Exclude<AttendanceAutoStatus, "PENDING" | "NO_SCHEDULE">;
+export type EmployeeWorkMode = "FIXED" | "ROSTER" | "NONE";
+export type RosterBackupReason = "LEAVE" | "SICK" | "PERMISSION" | "TRAINING" | "OUT_OF_OFFICE" | "STAFFING" | "OTHER";
 
 export const schemaMigrations = sqliteTable("schema_migrations", {
   version: integer("version").primaryKey(),
@@ -132,9 +134,56 @@ export const employeeScheduleProfiles = sqliteTable("employee_schedule_profiles"
   employeeId: integer("employee_id").primaryKey().references(() => employees.id),
   scheduleTemplateId: text("schedule_template_id").notNull().references(() => scheduleTemplates.id),
   workdaysJson: text("workdays_json").notNull().default("[1,2,3,4,5]"),
+  // Maps ISO weekday (1 = Monday) to the schedule template used that day.
+  // It keeps a normal weekday profile backward-compatible while allowing
+  // cases such as ADM 08:00-12:00 specifically on Saturday.
+  weeklyTemplateIdsJson: text("weekly_template_ids_json").notNull().default("{}"),
   autoWeekendOvertime: integer("auto_weekend_overtime", { mode: "boolean" }).notNull().default(true),
   overtimeBufferMinutes: integer("overtime_buffer_minutes").notNull().default(15),
   createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull()
+});
+
+// Backup is intentionally separate from a roster assignment.  It records
+// who covers an absence without silently overwriting either person's own
+// roster or attendance calculation.
+export const rosterBackupAssignments = sqliteTable("roster_backup_assignments", {
+  id: text("id").primaryKey(),
+  coveredEmployeeId: integer("covered_employee_id").notNull().references(() => employees.id),
+  backupEmployeeId: integer("backup_employee_id").notNull().references(() => employees.id),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date").notNull(),
+  reason: text("reason").$type<RosterBackupReason>().notNull(),
+  reasonDetails: text("reason_details"),
+  notes: text("notes"),
+  createdByEmployeeId: integer("created_by_employee_id").references(() => employees.id),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull()
+}, (table) => [
+  index("roster_backup_assignments_covered_idx").on(table.coveredEmployeeId),
+  index("roster_backup_assignments_backup_idx").on(table.backupEmployeeId),
+  index("roster_backup_assignments_dates_idx").on(table.startDate, table.endDate)
+]);
+
+// A work mode is deliberately separate from a fixed schedule profile.  A
+// roster employee must not be forced to choose either Shift Pagi or Shift
+// Malam as their permanent schedule: the daily roster owns that decision.
+export const employeeWorkModes = sqliteTable("employee_work_modes", {
+  employeeId: integer("employee_id").primaryKey().references(() => employees.id),
+  mode: text("mode").$type<EmployeeWorkMode>().notNull().default("NONE"),
+  rosterGroup: text("roster_group"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull()
+});
+
+// One record per installation.  These are operating policies, deliberately
+// separate from a schedule template so the same tolerance applies to every
+// kind of shift unless the company changes the policy itself.
+export const attendanceSettings = sqliteTable("attendance_settings", {
+  id: integer("id").primaryKey(),
+  lateToleranceMinutes: integer("late_tolerance_minutes").notNull().default(15),
+  earlyLeaveToleranceMinutes: integer("early_leave_tolerance_minutes").notNull().default(0),
+  overtimeBufferMinutes: integer("overtime_buffer_minutes").notNull().default(15),
   updatedAt: text("updated_at").notNull()
 });
 

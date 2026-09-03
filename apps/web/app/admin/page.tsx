@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { Metric } from "../components/metric";
 import { PageHeader } from "../components/page-header";
-import { StatusBadge } from "../components/status-badge";
+import { SystemReadiness } from "../components/system-readiness";
 
 export const metadata = { title: "Dashboard admin" };
 
@@ -10,16 +9,10 @@ export default function AdminDashboardPage() {
     <>
       <PageHeader
         title="Pusat operasional"
-        description="Pantau kesiapan perangkat, jadwal, dan data yang perlu ditinjau admin."
-        action={<StatusBadge tone="on-time">Evaluasi otomatis siap</StatusBadge>}
+        description="Pantau kesiapan perangkat, data karyawan, pola kerja, dan roster periode aktif."
       />
 
-      <section className="metric-grid" aria-label="Ringkasan administrasi">
-        <Metric label="Karyawan terdaftar" value="117" note="Data mesin Sangatta" emphasis />
-        <Metric label="Perangkat" value="2" note="1 online, 1 perlu diperiksa" />
-        <Metric label="Roster terbit" value="0" note="September 2026" />
-        <Metric label="Perlu ditinjau" value="Buka verifikasi" note="Konfirmasi hanya untuk pengecualian" />
-      </section>
+      <SystemReadiness />
 
       <section className="admin-action-grid">
         <Link className="action-block action-yellow" href="/admin/roster">
@@ -49,18 +42,6 @@ export default function AdminDashboardPage() {
         </Link>
       </section>
 
-      <section className="panel readiness-panel">
-        <div className="panel-heading">
-          <div><h2>Kesiapan sistem</h2><p>Urutan konfigurasi sebelum status absensi diaktifkan.</p></div>
-        </div>
-        <ol className="readiness-list">
-          <li className="readiness-complete"><strong>Log X105 tersimpan</strong><span>Receiver dan SQLite sudah menerima scan.</span></li>
-          <li><strong>Master karyawan</strong><span>Tambahkan departemen dan hubungan PIN perangkat.</span></li>
-          <li><strong>Template jam kerja</strong><span>Buat steady day, shift pagi, dan shift malam.</span></li>
-          <li><strong>Roster diterbitkan</strong><span>Tentukan jadwal harian setiap karyawan.</span></li>
-          <li className="readiness-complete"><strong>Rules engine aktif</strong><span>Hitung masuk, keluar, terlambat, off, on-call, dan lembur.</span></li>
-        </ol>
-      </section>
     </>
   );
 }

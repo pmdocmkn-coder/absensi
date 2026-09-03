@@ -5,6 +5,7 @@ import {
   createEmployee,
   createSite,
   getEmployeeById,
+  importEmployeeSetup,
   importEmployees,
   listDepartments,
   listEmployees,
@@ -110,6 +111,25 @@ export const masterDataRoutes = new Elysia({ prefix: "/api" })
         departmentId: t.Optional(t.Nullable(t.String({ maxLength: 80 }))),
         role: t.Optional(roleSchema),
         deviceMappings: t.Optional(t.Array(deviceMappingSchema, { maxItems: 20 }))
+      }), { minItems: 1, maxItems: 500 })
+    })
+  })
+  .post("/employees/import-setup", ({ request, body }) => {
+    requirePermission(request, "MANAGE_MASTER_DATA");
+    return importEmployeeSetup(body.records);
+  }, {
+    body: t.Object({
+      records: t.Array(t.Object({
+        employeeCode: t.String({ minLength: 1, maxLength: 80 }),
+        name: t.String({ minLength: 1, maxLength: 160 }),
+        email: t.Optional(t.Nullable(t.String({ format: "email", maxLength: 160 }))),
+        siteId: t.Optional(t.Nullable(t.String({ maxLength: 80 }))),
+        departmentCode: t.Optional(t.Nullable(t.String({ maxLength: 20 }))),
+        departmentName: t.Optional(t.Nullable(t.String({ maxLength: 120 }))),
+        role: t.Optional(roleSchema),
+        deviceSerial: t.Optional(t.Nullable(t.String({ maxLength: 80 }))),
+        deviceUserCode: t.Optional(t.Nullable(t.String({ maxLength: 80 }))),
+        rosterGroup: t.Optional(t.Nullable(t.String({ maxLength: 80 })))
       }), { minItems: 1, maxItems: 500 })
     })
   })

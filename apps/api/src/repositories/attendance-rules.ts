@@ -1,14 +1,38 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { db, sqlite } from "../db/connection";
-import { employeeScheduleProfiles, employees, scheduleTemplates, type AttendanceAutoStatus, type AttendanceConfirmedStatus } from "../db/schema";
+import { attendanceSettings, departments, employeeScheduleProfiles, employeeWorkModes, employees, scheduleTemplates, type AttendanceAutoStatus, type AttendanceConfirmedStatus, type EmployeeWorkMode, type UserRole } from "../db/schema";
 import { NotFoundError, ValidationError } from "../errors";
 
 type ProfileInput = {
   employeeId: number;
   scheduleTemplateId: string;
   workdays: number[];
+  weeklyTemplates?: WeeklyTemplateInput[];
   autoWeekendOvertime?: boolean;
   overtimeBufferMinutes?: number;
+};
+
+type WeeklyTemplateInput = { day: number; scheduleTemplateId: string };
+
+export type WorkModeInput = {
+  employeeId: number;
+  mode: EmployeeWorkMode;
+  rosterGroup?: string | null;
+};
+
+export type BulkWorkSetupInput = {
+  employeeIds: number[];
+  mode: EmployeeWorkMode;
+  rosterGroup?: string | null;
+  departmentId?: string | null;
+  role?: UserRole;
+  profile?: {
+    scheduleTemplateId: string;
+    workdays: number[];
+    weeklyTemplates?: WeeklyTemplateInput[];
+    autoWeekendOvertime?: boolean;
+    overtimeBufferMinutes?: number;
+  } | null;
 };
 
 type Template = {
@@ -46,6 +70,7 @@ export type DailyAttendance = {
   confirmationState: "AUTO" | "CONFIRMED";
   checkInAt: string | null;
   checkOutAt: string | null;
+  lastScanAt: string | null;
   scheduledStartAt: string | null;
   scheduledEndAt: string | null;
   scheduleCode: string | null;
@@ -61,6 +86,38 @@ export type DailyAttendance = {
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const ALL_STATUSES: AttendanceConfirmedStatus[] = ["PRESENT", "LATE", "OVERTIME", "ON_CALL", "OFF", "LEAVE", "ABSENT", "NEEDS_REVIEW"];
+
+export type AttendanceSettingsInput = {
+  lateToleranceMinutes: number;
+  earlyLeaveToleranceMinutes: number;
+  overtimeBufferMinutes: number;
+};
+
+const DEFAULT_ATTENDANCE_SETTINGS: AttendanceSettingsInput = {
+  lateToleranceMinutes: 15,
+  earlyLeaveToleranceMinutes: 0,
+  overtimeBufferMinutes: 15
+};
+
+export function getAttendanceSettings(): AttendanceSettingsInput {
+  return db.select({
+    lateToleranceMinutes: attendanceSettings.lateToleranceMinutes,
+    earlyLeaveToleranceMinutes: attendanceSettings.earlyLeaveToleranceMinutes,
+    overtimeBufferMinutes: attendanceSettings.overtimeBufferMinutes
+  }).from(attendanceSettings).where(eq(attendanceSettings.id, 1)).get() ?? DEFAULT_ATTENDANCE_SETTINGS;
+}
+
+export function updateAttendanceSettings(input: AttendanceSettingsInput) {
+  const values = [input.lateToleranceMinutes, input.earlyLeaveToleranceMinutes, input.overtimeBufferMinutes];
+  if (values.some((value) => !Number.isInteger(value) || value < 0 || value > 240)) {
+    throw new ValidationError("Toleransi absensi harus berupa angka antara 0 sampai 240 menit");
+  }
+  return db.insert(attendanceSettings).values({ id: 1, ...input, updatedAt: new Date().toISOString() })
+    .onConflictDoUpdate({
+      target: attendanceSettings.id,
+      set: { ...input, updatedAt: new Date().toISOString() }
+    }).returning().get();
+}
 
 function validDate(value: string) {
   if (!DATE_PATTERN.test(value)) throw new ValidationError("Tanggal harus memakai format YYYY-MM-DD");
@@ -101,13 +158,63 @@ function parseWorkdays(value: string) {
   return [1, 2, 3, 4, 5];
 }
 
+function parseWeeklyTemplateIds(value: string | null) {
+  try {
+    const parsed = JSON.parse(value ?? "{}") as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {} as Record<number, string>;
+    return Object.fromEntries(Object.entries(parsed)
+      .filter(([day, templateId]) => Number.isInteger(Number(day)) && Number(day) >= 1 && Number(day) <= 7 && typeof templateId === "string" && templateId.trim())
+      .map(([day, templateId]) => [Number(day), templateId])) as Record<number, string>;
+  } catch {
+    return {} as Record<number, string>;
+  }
+}
+
+function normalizeWeeklyTemplates(input: WeeklyTemplateInput[] | undefined, scheduleTemplateId: string, workdays: number[]) {
+  const source = input?.length ? input : workdays.map((day) => ({ day, scheduleTemplateId }));
+  if (!source.length || source.some(({ day, scheduleTemplateId: id }) => !Number.isInteger(day) || day < 1 || day > 7 || !id.trim())) {
+    throw new ValidationError("Template per hari harus berisi hari 1 sampai 7 dan jadwal yang valid");
+  }
+  const days = source.map(({ day }) => day);
+  if (new Set(days).size !== days.length) throw new ValidationError("Satu hari hanya boleh memiliki satu template jadwal");
+  return source.map(({ day, scheduleTemplateId: id }) => ({ day, scheduleTemplateId: id.trim() }))
+    .sort((left, right) => left.day - right.day);
+}
+
+function ensureTemplatesExist(ids: string[]) {
+  const uniqueIds = [...new Set(ids)];
+  const records = db.select({ id: scheduleTemplates.id }).from(scheduleTemplates)
+    .where(inArray(scheduleTemplates.id, uniqueIds)).all();
+  if (records.length !== uniqueIds.length) throw new NotFoundError("Satu atau beberapa template jadwal tidak ditemukan");
+}
+
+function isPitCrewDepartment(departmentCode: string | null, departmentName: string | null) {
+  return /\bpit\s*crew\b/i.test(`${departmentCode ?? ""} ${departmentName ?? ""}`);
+}
+
+function steadyDayTemplate(): Template | null {
+  const record = db.select({
+    id: scheduleTemplates.id,
+    code: scheduleTemplates.code,
+    name: scheduleTemplates.name,
+    startTime: scheduleTemplates.startTime,
+    endTime: scheduleTemplates.endTime,
+    graceMinutes: scheduleTemplates.graceMinutes,
+    crossesMidnight: scheduleTemplates.crossesMidnight
+  }).from(scheduleTemplates).where(eq(scheduleTemplates.code, "STEADY_DAY")).get();
+  return record ? { ...record, crossesMidnight: Number(record.crossesMidnight) } : null;
+}
+
 function profileRow(employeeId: number) {
   return sqlite.query<{
     employeeId: number;
     employeeCode: string;
     employeeName: string;
+    departmentCode: string | null;
     departmentName: string | null;
+    workMode: "FIXED" | "ROSTER" | "NONE" | null;
     workdaysJson: string | null;
+    weeklyTemplateIdsJson: string | null;
     autoWeekendOvertime: number | null;
     overtimeBufferMinutes: number | null;
     templateId: string | null;
@@ -122,8 +229,11 @@ function profileRow(employeeId: number) {
       employee.id AS employeeId,
       employee.employee_code AS employeeCode,
       employee.name AS employeeName,
+      department.code AS departmentCode,
       department.name AS departmentName,
+      work_mode.mode AS workMode,
       profile.workdays_json AS workdaysJson,
+      profile.weekly_template_ids_json AS weeklyTemplateIdsJson,
       profile.auto_weekend_overtime AS autoWeekendOvertime,
       profile.overtime_buffer_minutes AS overtimeBufferMinutes,
       template.id AS templateId,
@@ -135,6 +245,7 @@ function profileRow(employeeId: number) {
       template.crosses_midnight AS crossesMidnight
     FROM employees AS employee
     LEFT JOIN departments AS department ON department.id = employee.department_id
+    LEFT JOIN employee_work_modes AS work_mode ON work_mode.employee_id = employee.id
     LEFT JOIN employee_schedule_profiles AS profile ON profile.employee_id = employee.id
     LEFT JOIN schedule_templates AS template ON template.id = profile.schedule_template_id
     WHERE employee.id = ? AND employee.is_active = 1
@@ -157,6 +268,19 @@ function rosterFor(employeeId: number, date: string) {
     LEFT JOIN schedule_templates AS template ON template.id = roster.schedule_template_id
     WHERE roster.employee_id = ? AND roster.assignment_date = ?
   `).all(employeeId, date);
+}
+
+function scheduleTemplateById(id: string) {
+  const record = db.select({
+    id: scheduleTemplates.id,
+    code: scheduleTemplates.code,
+    name: scheduleTemplates.name,
+    startTime: scheduleTemplates.startTime,
+    endTime: scheduleTemplates.endTime,
+    graceMinutes: scheduleTemplates.graceMinutes,
+    crossesMidnight: scheduleTemplates.crossesMidnight
+  }).from(scheduleTemplates).where(eq(scheduleTemplates.id, id)).get();
+  return record ? { ...record, crossesMidnight: Number(record.crossesMidnight) } : null;
 }
 
 function scansFor(employeeId: number, date: string, crossesMidnight: boolean) {
@@ -235,6 +359,7 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
   const attendanceDate = validDate(attendanceDateInput);
   const person = profileRow(employeeId);
   if (!person) throw new NotFoundError("Karyawan aktif tidak ditemukan");
+  const globalSettings = getAttendanceSettings();
 
   const roster = rosterFor(employeeId, attendanceDate);
   const regular = roster.find((entry) => entry.assignmentType === "REGULAR");
@@ -242,13 +367,21 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
   const isLeave = roster.some((entry) => entry.assignmentType === "LEAVE");
   const hasOnCall = roster.some((entry) => entry.assignmentType === "ON_CALL");
   const explicitOvertime = roster.some((entry) => entry.assignmentType === "OVERTIME");
-  const fallbackTemplate: Template | null = person.templateId && person.startTime && person.endTime && person.templateCode && person.templateName
+  const hasFixedProfile = person.templateId && person.startTime && person.endTime && person.templateCode && person.templateName;
+  // Departments outside PIT Crew follow Steady Day by policy.  A stored work
+  // mode is an explicit override: ROSTER and NONE must never be silently
+  // converted to a fixed schedule.
+  const usesImplicitSteadyDay = !hasFixedProfile
+    && person.workMode === null
+    && Boolean(person.departmentName)
+    && !isPitCrewDepartment(person.departmentCode, person.departmentName);
+  const fallbackTemplate: Template | null = hasFixedProfile
     ? {
-        id: person.templateId, code: person.templateCode, name: person.templateName,
-        startTime: person.startTime, endTime: person.endTime,
+        id: person.templateId!, code: person.templateCode!, name: person.templateName!,
+        startTime: person.startTime!, endTime: person.endTime!,
         graceMinutes: person.graceMinutes ?? 0, crossesMidnight: person.crossesMidnight ?? 0
       }
-    : null;
+    : usesImplicitSteadyDay ? steadyDayTemplate() : null;
   const regularTemplate: Template | null = regular?.templateId && regular.startTime && regular.endTime && regular.templateCode && regular.templateName
     ? {
         id: regular.templateId, code: regular.templateCode, name: regular.templateName,
@@ -256,12 +389,20 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
         graceMinutes: regular.graceMinutes ?? 0, crossesMidnight: regular.crossesMidnight ?? 0
       }
     : null;
-  const profileWorksToday = fallbackTemplate && parseWorkdays(person.workdaysJson ?? "[]").includes(dayOfWeek(attendanceDate));
-  const template = regularTemplate ?? (profileWorksToday ? fallbackTemplate : null);
+  const weeklyTemplateIds = parseWeeklyTemplateIds(person.weeklyTemplateIdsJson);
+  const hasWeeklyTemplates = Object.keys(weeklyTemplateIds).length > 0;
+  const profileTemplateForToday = weeklyTemplateIds[dayOfWeek(attendanceDate)]
+    ? scheduleTemplateById(weeklyTemplateIds[dayOfWeek(attendanceDate)]!)
+    : fallbackTemplate;
+  const profileWorksToday = Boolean(profileTemplateForToday) && (hasWeeklyTemplates
+    ? Boolean(weeklyTemplateIds[dayOfWeek(attendanceDate)])
+    : parseWorkdays(person.workdaysJson ?? "[1,2,3,4,5]").includes(dayOfWeek(attendanceDate)));
+  const template = regularTemplate ?? (profileWorksToday ? profileTemplateForToday : null);
   const crossesMidnight = Boolean(template?.crossesMidnight);
   const scans = scansFor(employeeId, attendanceDate, crossesMidnight);
   const checkInAt = scans[0]?.recordedAt ?? null;
   const checkOutAt = scans.length > 1 ? scans.at(-1)?.recordedAt ?? null : null;
+  const lastScanAt = scans.at(-1)?.recordedAt ?? null;
   const notes: string[] = [];
   let autoStatus: AttendanceAutoStatus = "NO_SCHEDULE";
   let lateMinutes = 0;
@@ -269,6 +410,8 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
   let overtimeMinutes = 0;
   let scheduledStartAt: string | null = null;
   let scheduledEndAt: string | null = null;
+
+  if (usesImplicitSteadyDay) notes.push("Steady Day otomatis berdasarkan departemen");
 
   if (isLeave || isOff) {
     autoStatus = scans.length ? "NEEDS_REVIEW" : isLeave ? "LEAVE" : "OFF";
@@ -279,7 +422,7 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
     scheduledEndAt = `${endDate} ${template.endTime}:00`;
     const scheduledStartMinutes = minutes(template.startTime);
     const scheduledEndMinutes = minutes(template.endTime) + (template.crossesMidnight ? 1440 : 0);
-    const buffer = person.overtimeBufferMinutes ?? 15;
+    const buffer = globalSettings.overtimeBufferMinutes;
 
     if (!checkInAt) {
       autoStatus = dateHasEnded(attendanceDate, template.endTime, Boolean(template.crossesMidnight)) ? "ABSENT" : "PENDING";
@@ -287,7 +430,7 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
     } else {
       const checkInMinutes = scanMinutes(checkInAt);
       const adjustedCheckInMinutes = template.crossesMidnight && checkInAt.slice(0, 10) !== attendanceDate ? checkInMinutes + 1440 : checkInMinutes;
-      lateMinutes = Math.max(0, adjustedCheckInMinutes - scheduledStartMinutes - template.graceMinutes);
+      lateMinutes = Math.max(0, adjustedCheckInMinutes - scheduledStartMinutes - globalSettings.lateToleranceMinutes);
       autoStatus = lateMinutes > 0 ? "LATE" : "PRESENT";
       if (lateMinutes > 0) notes.push(`Terlambat ${lateMinutes} menit`);
 
@@ -296,7 +439,7 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
       const adjustedFinalMinutes = template.crossesMidnight && finalScan && finalScan.slice(0, 10) !== attendanceDate ? finalMinutesRaw + 1440 : finalMinutesRaw;
       const scanOutsideAfter = checkOutAt ? adjustedFinalMinutes - scheduledEndMinutes : 0;
       overtimeMinutes = Math.max(0, scanOutsideAfter - buffer);
-      earlyLeaveMinutes = checkOutAt ? Math.max(0, scheduledEndMinutes - adjustedFinalMinutes) : 0;
+      earlyLeaveMinutes = checkOutAt ? Math.max(0, scheduledEndMinutes - adjustedFinalMinutes - globalSettings.earlyLeaveToleranceMinutes) : 0;
 
       if (earlyLeaveMinutes > 0) notes.push(`Pulang ${earlyLeaveMinutes} menit sebelum jadwal selesai`);
       if (!checkOutAt && dateHasEnded(attendanceDate, template.endTime, Boolean(template.crossesMidnight))) {
@@ -311,7 +454,7 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
         notes.push("On-call sesuai roster");
       }
     }
-  } else if (scans.length && fallbackTemplate && Boolean(person.autoWeekendOvertime)) {
+  } else if (scans.length && fallbackTemplate && (person.autoWeekendOvertime ?? usesImplicitSteadyDay)) {
     autoStatus = scans.length > 1 ? (hasOnCall ? "ON_CALL" : "OVERTIME") : "NEEDS_REVIEW";
     overtimeMinutes = checkInAt && checkOutAt
       ? Math.max(0, Math.round((new Date(`${checkOutAt.replace(" ", "T")}+08:00`).getTime() - new Date(`${checkInAt.replace(" ", "T")}+08:00`).getTime()) / 60_000))
@@ -341,10 +484,11 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
     autoStatus,
     checkInAt,
     checkOutAt,
+    lastScanAt,
     scheduledStartAt,
     scheduledEndAt,
-    scheduleCode: template?.code ?? fallbackTemplate?.code ?? null,
-    scheduleName: template?.name ?? fallbackTemplate?.name ?? null,
+    scheduleCode: template?.code ?? profileTemplateForToday?.code ?? fallbackTemplate?.code ?? null,
+    scheduleName: template?.name ?? profileTemplateForToday?.name ?? fallbackTemplate?.name ?? null,
     scanCount: scans.length,
     lateMinutes,
     earlyLeaveMinutes,
@@ -376,8 +520,8 @@ export function listDailyAttendance(input: { from: string; to: string; employeeI
     for (let date = from; date <= to; date = addDays(date, 1)) results.push(evaluateEmployeeDay(employeeId, date));
   }
   return results.sort((left, right) => {
-    const leftActivity = left.checkOutAt ?? left.checkInAt;
-    const rightActivity = right.checkOutAt ?? right.checkInAt;
+    const leftActivity = left.lastScanAt ?? left.checkOutAt ?? left.checkInAt;
+    const rightActivity = right.lastScanAt ?? right.checkOutAt ?? right.checkInAt;
     if (leftActivity && rightActivity) return rightActivity.localeCompare(leftActivity);
     if (leftActivity) return -1;
     if (rightActivity) return 1;
@@ -392,13 +536,16 @@ export function upsertScheduleProfile(input: ProfileInput) {
   }
   const employee = db.select({ id: employees.id }).from(employees).where(eq(employees.id, input.employeeId)).get();
   if (!employee) throw new NotFoundError("Karyawan tidak ditemukan");
-  const template = db.select({ id: scheduleTemplates.id }).from(scheduleTemplates).where(eq(scheduleTemplates.id, input.scheduleTemplateId)).get();
-  if (!template) throw new NotFoundError("Template jadwal tidak ditemukan");
+  const weeklyTemplates = normalizeWeeklyTemplates(input.weeklyTemplates, input.scheduleTemplateId, input.workdays);
+  ensureTemplatesExist([input.scheduleTemplateId, ...weeklyTemplates.map(({ scheduleTemplateId }) => scheduleTemplateId)]);
+  const workdays = weeklyTemplates.map(({ day }) => day);
+  const weeklyTemplateIdsJson = JSON.stringify(Object.fromEntries(weeklyTemplates.map(({ day, scheduleTemplateId }) => [day, scheduleTemplateId])));
   const now = new Date().toISOString();
   return db.insert(employeeScheduleProfiles).values({
     employeeId: input.employeeId,
     scheduleTemplateId: input.scheduleTemplateId,
-    workdaysJson: JSON.stringify([...new Set(input.workdays)].sort()),
+    workdaysJson: JSON.stringify(workdays),
+    weeklyTemplateIdsJson,
     autoWeekendOvertime: input.autoWeekendOvertime ?? true,
     overtimeBufferMinutes: input.overtimeBufferMinutes ?? 15,
     createdAt: now,
@@ -407,7 +554,8 @@ export function upsertScheduleProfile(input: ProfileInput) {
     target: employeeScheduleProfiles.employeeId,
     set: {
       scheduleTemplateId: input.scheduleTemplateId,
-      workdaysJson: JSON.stringify([...new Set(input.workdays)].sort()),
+      workdaysJson: JSON.stringify(workdays),
+      weeklyTemplateIdsJson,
       autoWeekendOvertime: input.autoWeekendOvertime ?? true,
       overtimeBufferMinutes: input.overtimeBufferMinutes ?? 15,
       updatedAt: now
@@ -424,6 +572,7 @@ export function listScheduleProfiles() {
     scheduleTemplateCode: scheduleTemplates.code,
     scheduleTemplateName: scheduleTemplates.name,
     workdaysJson: employeeScheduleProfiles.workdaysJson,
+    weeklyTemplateIdsJson: employeeScheduleProfiles.weeklyTemplateIdsJson,
     autoWeekendOvertime: employeeScheduleProfiles.autoWeekendOvertime,
     overtimeBufferMinutes: employeeScheduleProfiles.overtimeBufferMinutes
   }).from(employeeScheduleProfiles)
@@ -431,7 +580,13 @@ export function listScheduleProfiles() {
     .innerJoin(scheduleTemplates, eq(employeeScheduleProfiles.scheduleTemplateId, scheduleTemplates.id))
     .orderBy(asc(employees.name))
     .all()
-    .map((profile) => ({ ...profile, workdays: parseWorkdays(profile.workdaysJson) }));
+    .map((profile) => ({
+      ...profile,
+      workdays: parseWorkdays(profile.workdaysJson),
+      weeklyTemplates: Object.entries(parseWeeklyTemplateIds(profile.weeklyTemplateIdsJson))
+        .map(([day, scheduleTemplateId]) => ({ day: Number(day), scheduleTemplateId }))
+        .sort((left, right) => left.day - right.day)
+    }));
 }
 
 export function deleteScheduleProfile(employeeId: number) {
@@ -441,6 +596,120 @@ export function deleteScheduleProfile(employeeId: number) {
     .get();
   if (!deleted) throw new NotFoundError("Profil kerja karyawan tidak ditemukan");
   return { success: true };
+}
+
+export function listEmployeeWorkModes() {
+  return db.select({
+    employeeId: employees.id,
+    mode: employeeWorkModes.mode,
+    rosterGroup: employeeWorkModes.rosterGroup
+  }).from(employeeWorkModes)
+    .innerJoin(employees, eq(employeeWorkModes.employeeId, employees.id))
+    .orderBy(asc(employees.name))
+    .all();
+}
+
+export function upsertEmployeeWorkMode(input: WorkModeInput) {
+  const employee = db.select({ id: employees.id }).from(employees).where(eq(employees.id, input.employeeId)).get();
+  if (!employee) throw new NotFoundError("Karyawan tidak ditemukan");
+  const rosterGroup = input.mode === "ROSTER" ? input.rosterGroup?.trim() : null;
+  if (input.mode === "ROSTER" && !rosterGroup) throw new ValidationError("Kelompok roster wajib dipilih untuk karyawan shift");
+  const now = new Date().toISOString();
+  return db.insert(employeeWorkModes).values({
+    employeeId: input.employeeId,
+    mode: input.mode,
+    rosterGroup: rosterGroup || null,
+    createdAt: now,
+    updatedAt: now
+  }).onConflictDoUpdate({
+    target: employeeWorkModes.employeeId,
+    set: { mode: input.mode, rosterGroup: rosterGroup || null, updatedAt: now }
+  }).returning().get();
+}
+
+export function bulkUpsertEmployeeWorkSetup(input: BulkWorkSetupInput) {
+  const employeeIds = [...new Set(input.employeeIds)];
+  if (!employeeIds.length || employeeIds.some((id) => !Number.isInteger(id) || id < 1)) {
+    throw new ValidationError("Pilih minimal satu karyawan yang valid");
+  }
+  const rosterGroup = input.mode === "ROSTER" ? input.rosterGroup?.trim() : null;
+  if (input.mode === "ROSTER" && !rosterGroup) throw new ValidationError("Kelompok roster wajib diisi untuk karyawan shift");
+  if (input.mode === "FIXED") {
+    if (!input.profile) throw new ValidationError("Detail jadwal tetap wajib diisi");
+    if (!input.profile.workdays.length || input.profile.workdays.some((day) => !Number.isInteger(day) || day < 1 || day > 7)) {
+      throw new ValidationError("Hari kerja harus berisi angka 1 sampai 7");
+    }
+  }
+
+  const weeklyTemplates = input.mode === "FIXED" && input.profile
+    ? normalizeWeeklyTemplates(input.profile.weeklyTemplates, input.profile.scheduleTemplateId, input.profile.workdays)
+    : [];
+
+  return db.transaction((transaction) => {
+    const foundEmployees = transaction.select({ id: employees.id }).from(employees).where(inArray(employees.id, employeeIds)).all();
+    if (foundEmployees.length !== employeeIds.length) throw new NotFoundError("Satu atau beberapa karyawan tidak ditemukan");
+    if (input.mode === "FIXED" && input.profile) {
+      const templateIds = [...new Set([input.profile.scheduleTemplateId, ...weeklyTemplates.map(({ scheduleTemplateId }) => scheduleTemplateId)])];
+      const templates = transaction.select({ id: scheduleTemplates.id }).from(scheduleTemplates)
+        .where(inArray(scheduleTemplates.id, templateIds)).all();
+      if (templates.length !== templateIds.length) throw new NotFoundError("Satu atau beberapa template jadwal tidak ditemukan");
+    }
+    if (input.departmentId) {
+      const department = transaction.select({ id: departments.id }).from(departments)
+        .where(eq(departments.id, input.departmentId)).get();
+      if (!department) throw new NotFoundError("Departemen tidak ditemukan");
+    }
+
+    const now = new Date().toISOString();
+    for (const employeeId of employeeIds) {
+      if (input.departmentId !== undefined || input.role !== undefined) {
+        transaction.update(employees).set({
+          ...(input.departmentId === undefined ? {} : { departmentId: input.departmentId }),
+          ...(input.role === undefined ? {} : { role: input.role }),
+          updatedAt: now
+        }).where(eq(employees.id, employeeId)).run();
+      }
+
+      if (input.mode === "FIXED" && input.profile) {
+        const workdays = weeklyTemplates.map(({ day }) => day);
+        const weeklyTemplateIdsJson = JSON.stringify(Object.fromEntries(weeklyTemplates.map(({ day, scheduleTemplateId }) => [day, scheduleTemplateId])));
+        transaction.insert(employeeScheduleProfiles).values({
+          employeeId,
+          scheduleTemplateId: input.profile.scheduleTemplateId,
+          workdaysJson: JSON.stringify(workdays),
+          weeklyTemplateIdsJson,
+          autoWeekendOvertime: input.profile.autoWeekendOvertime ?? true,
+          overtimeBufferMinutes: input.profile.overtimeBufferMinutes ?? 15,
+          createdAt: now,
+          updatedAt: now
+        }).onConflictDoUpdate({
+          target: employeeScheduleProfiles.employeeId,
+          set: {
+            scheduleTemplateId: input.profile.scheduleTemplateId,
+            workdaysJson: JSON.stringify(workdays),
+            weeklyTemplateIdsJson,
+            autoWeekendOvertime: input.profile.autoWeekendOvertime ?? true,
+            overtimeBufferMinutes: input.profile.overtimeBufferMinutes ?? 15,
+            updatedAt: now
+          }
+        }).run();
+      } else {
+        transaction.delete(employeeScheduleProfiles).where(eq(employeeScheduleProfiles.employeeId, employeeId)).run();
+      }
+
+      transaction.insert(employeeWorkModes).values({
+        employeeId,
+        mode: input.mode,
+        rosterGroup: rosterGroup || null,
+        createdAt: now,
+        updatedAt: now
+      }).onConflictDoUpdate({
+        target: employeeWorkModes.employeeId,
+        set: { mode: input.mode, rosterGroup: rosterGroup || null, updatedAt: now }
+      }).run();
+    }
+    return { success: true, total: employeeIds.length, mode: input.mode };
+  });
 }
 
 export function confirmDailyAttendance(input: {
