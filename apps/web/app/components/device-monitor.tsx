@@ -39,6 +39,7 @@ export function DeviceMonitor() {
       activeController = new AbortController();
       try {
         const response = await fetch(`${API_URL}/api/events?limit=50`, {
+          credentials: "include",
           cache: "no-store",
           signal: activeController.signal
         });
