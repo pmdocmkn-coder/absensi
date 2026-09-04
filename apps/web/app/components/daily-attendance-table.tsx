@@ -10,6 +10,7 @@ import {
   type DailyAttendance,
   witaDate
 } from "./attendance-display";
+import { CustomSelect } from "./custom-dropdown";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
@@ -146,40 +147,34 @@ export function DailyAttendanceTable() {
       </div>
 
       <div className="ref-filter-group">
-        <div className="ref-filter-item">
-          <span className="ref-filter-icon" aria-hidden="true">🏢</span>
-          <select
-            className="ref-select"
-            value={department}
-            onChange={(e) => setDepartment(e.target.value)}
-            aria-label="Filter Departemen"
-          >
-            <option value="ALL">Semua Divisi / Departemen</option>
-            {departments.map((dept) => (
-              <option key={dept} value={dept}>{dept}</option>
-            ))}
-          </select>
-        </div>
+        <CustomSelect
+          ariaLabel="Filter Divisi / Departemen"
+          value={department}
+          options={[
+            { value: "ALL", label: "🏢 Semua Divisi / Departemen" },
+            ...departments.map((dept) => ({ value: dept, label: dept }))
+          ]}
+          onChange={setDepartment}
+          className="ref-toolbar-select"
+        />
 
-        <div className="ref-filter-item">
-          <span className="ref-filter-icon" aria-hidden="true">🎯</span>
-          <select
-            className="ref-select"
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            aria-label="Filter Status"
-          >
-            <option value="ALL">Semua Status</option>
-            <option value="PRESENT">Hadir Tepat Waktu</option>
-            <option value="LATE">Terlambat</option>
-            <option value="OFF">Jadwal Off</option>
-            <option value="LEAVE">Sedang Cuti</option>
-            <option value="ON_CALL">Sedang On-Call</option>
-            <option value="ABSENT">Belum Hadir</option>
-            <option value="OVERTIME">Lembur</option>
-            <option value="NEEDS_REVIEW">Perlu Ditinjau</option>
-          </select>
-        </div>
+        <CustomSelect
+          ariaLabel="Filter Status Absensi"
+          value={status}
+          options={[
+            { value: "ALL", label: "🎯 Semua Status" },
+            { value: "PRESENT", label: "Hadir Tepat Waktu" },
+            { value: "LATE", label: "Terlambat" },
+            { value: "OFF", label: "Jadwal Off" },
+            { value: "LEAVE", label: "Sedang Cuti" },
+            { value: "ON_CALL", label: "Sedang On-Call" },
+            { value: "ABSENT", label: "Belum Hadir" },
+            { value: "OVERTIME", label: "Lembur" },
+            { value: "NEEDS_REVIEW", label: "Perlu Ditinjau" }
+          ]}
+          onChange={setStatus}
+          className="ref-toolbar-select"
+        />
 
         <div className="ref-date-item">
           <input

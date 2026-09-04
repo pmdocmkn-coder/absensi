@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "../components/page-header";
-import { SearchableSelect, type SearchableOption } from "../components/custom-dropdown";
+import { CustomSelect, SearchableSelect, type SearchableOption } from "../components/custom-dropdown";
 import { getAvatarColor, getInitials, witaDate } from "../components/attendance-display";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
@@ -286,29 +286,33 @@ export default function LeaveManagementPage() {
           </div>
 
           <div className="leave-filter-group">
-            <select
-              className="leave-select"
+            <CustomSelect
+              ariaLabel="Filter Jenis Cuti"
               value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-            >
-              <option value="ALL">Semua Jenis Cuti</option>
-              <option value="ANNUAL">Cuti Tahunan</option>
-              <option value="SICK">Cuti Sakit</option>
-              <option value="FAMILY">Izin Keluarga</option>
-              <option value="MATERNITY">Cuti Melahirkan</option>
-              <option value="SPECIAL">Cuti Alasan Penting</option>
-            </select>
+              options={[
+                { value: "ALL", label: "Semua Jenis Cuti" },
+                { value: "ANNUAL", label: "Cuti Tahunan" },
+                { value: "SICK", label: "Cuti Sakit" },
+                { value: "FAMILY", label: "Izin Keluarga" },
+                { value: "MATERNITY", label: "Cuti Melahirkan" },
+                { value: "SPECIAL", label: "Cuti Alasan Penting" }
+              ]}
+              onChange={setTypeFilter}
+              className="leave-toolbar-select"
+            />
 
-            <select
-              className="leave-select"
+            <CustomSelect
+              ariaLabel="Filter Status Cuti"
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="ALL">Semua Status</option>
-              <option value="APPROVED">Disetujui</option>
-              <option value="PENDING">Menunggu</option>
-              <option value="REJECTED">Ditolak</option>
-            </select>
+              options={[
+                { value: "ALL", label: "Semua Status" },
+                { value: "APPROVED", label: "Disetujui" },
+                { value: "PENDING", label: "Menunggu" },
+                { value: "REJECTED", label: "Ditolak" }
+              ]}
+              onChange={setStatusFilter}
+              className="leave-toolbar-select"
+            />
 
             <button
               type="button"
@@ -461,18 +465,30 @@ export default function LeaveManagementPage() {
         ) : null}
       </section>
 
-      {/* Modal Ajukan Cuti Baru */}
+      {/* Modal Ajukan Cuti Baru (Floating Centered Popup) */}
       {isModalOpen ? (
-        <div className="modal-backdrop" onClick={() => !submitting && setIsModalOpen(false)}>
-          <div className="roster-backup-modal leave-modal" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="roster-modal-backdrop"
+          role="presentation"
+          onMouseDown={() => !submitting && setIsModalOpen(false)}
+        >
+          <aside
+            className="roster-backup-modal-card leave-modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Ajukan cuti karyawan"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
             <div className="roster-backup-modal-header">
-              <div className="roster-backup-modal-title">
-                <h3>Ajukan Cuti Karyawan</h3>
+              <div>
+                <span className="roster-backup-eyebrow">PENGELOLAAN CUTI</span>
+                <h2>Ajukan Cuti Karyawan</h2>
                 <p>Formulir permohonan dan penetapan cuti langsung terhubung ke kalender roster.</p>
               </div>
               <button
                 type="button"
-                className="roster-backup-modal-close"
+                className="roster-backup-close-btn"
+                aria-label="Tutup dialog cuti"
                 onClick={() => !submitting && setIsModalOpen(false)}
               >
                 ✕
@@ -496,20 +512,21 @@ export default function LeaveManagementPage() {
                   />
                 </div>
 
-                {/* Jenis Cuti */}
+                {/* Jenis Cuti dengan Reusable CustomSelect */}
                 <div className="roster-backup-field">
                   <span className="field-title">Jenis Cuti</span>
-                  <select
-                    className="leave-modal-select"
+                  <CustomSelect
+                    ariaLabel="Pilih jenis cuti"
                     value={leaveType}
-                    onChange={(e) => setLeaveType(e.target.value as LeaveRecord["leaveType"])}
-                  >
-                    <option value="ANNUAL">Cuti Tahunan</option>
-                    <option value="SICK">Cuti Sakit (Disertai Surat Dokter)</option>
-                    <option value="FAMILY">Izin Keperluan Keluarga</option>
-                    <option value="MATERNITY">Cuti Melahirkan</option>
-                    <option value="SPECIAL">Cuti Alasan Penting / Dispensasi</option>
-                  </select>
+                    options={[
+                      { value: "ANNUAL", label: "Cuti Tahunan" },
+                      { value: "SICK", label: "Cuti Sakit (Disertai Surat Dokter)" },
+                      { value: "FAMILY", label: "Izin Keperluan Keluarga" },
+                      { value: "MATERNITY", label: "Cuti Melahirkan" },
+                      { value: "SPECIAL", label: "Cuti Alasan Penting / Dispensasi" }
+                    ]}
+                    onChange={(val) => setLeaveType(val as LeaveRecord["leaveType"])}
+                  />
                 </div>
 
                 {/* Rentang Tanggal */}
@@ -585,7 +602,7 @@ export default function LeaveManagementPage() {
                 </button>
               </div>
             </form>
-          </div>
+          </aside>
         </div>
       ) : null}
     </>
