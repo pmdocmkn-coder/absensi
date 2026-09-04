@@ -7020,4 +7020,210 @@ select option {
   background: #1e293b;
 }
 
+/* ==========================================================================
+   Ringkasan Kehadiran Karyawan (Employee Dashboard - Neo Industrial)
+   ========================================================================== */
+
+.ringkasan-eval-panel {
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  box-shadow: 3px 3px 0 var(--ink);
+  margin-bottom: 24px;
+  overflow: hidden;
+}
+
+.ringkasan-eval-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  padding: 18px 20px;
+}
+
+@media (max-width: 900px) {
+  .ringkasan-eval-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 500px) {
+  .ringkasan-eval-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ringkasan-eval-box {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: var(--surface-muted);
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+}
+
+.ringkasan-eval-box-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ringkasan-eval-box-value {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--ink);
+  line-height: 1.25;
+}
+
+.ringkasan-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ringkasan-tab-btn {
+  padding: 5px 12px;
+  border: 1.5px solid var(--ink);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 100ms ease;
+}
+
+.ringkasan-tab-btn.is-active {
+  background: var(--accent);
+  box-shadow: 1.5px 1.5px 0 var(--ink);
+}
+
+.ringkasan-personal-scan-box {
+  padding: 18px 20px;
+}
+
+.ringkasan-scan-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  background: #ffffff;
+}
+
+.ringkasan-scan-item:last-child {
+  margin-bottom: 0;
+}
+
+.ringkasan-scan-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ringkasan-scan-type-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  border: 1.5px solid var(--ink);
+}
+
+.scan-type-in {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.scan-type-out {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.ringkasan-scan-meta strong {
+  display: block;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.ringkasan-scan-meta span {
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+.ringkasan-profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px;
+}
+
+.ringkasan-profile-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--surface-muted);
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.ringkasan-profile-item-label {
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+
+.ringkasan-profile-item-val {
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.ringkasan-profile-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 20px 18px;
+}
+
+.ringkasan-profile-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 38px;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 2px 2px 0 var(--ink);
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--ink);
+  text-decoration: none;
+  transition: transform 100ms ease, box-shadow 100ms ease;
+}
+
+.ringkasan-profile-btn:hover {
+  background: var(--surface-muted);
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.ringkasan-profile-btn.btn-accent {
+  background: var(--accent);
+}
+
+.ringkasan-profile-btn:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--ink);
+}
+
 
