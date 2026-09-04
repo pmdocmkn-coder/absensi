@@ -47,7 +47,7 @@ export default function AttendanceVerificationPage() {
   const [batchNote, setBatchNote] = useState("");
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<VerificationFilter>("NEEDS_REVIEW");
-  const [activeTab, setActiveTab] = useState<"VERIFIED" | "UNVERIFIED">("VERIFIED");
+  const [activeTab, setActiveTab] = useState<"VERIFIED" | "NO_SCHEDULE" | "UNVERIFIED">("VERIFIED");
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<number | null>(null);
   const [batchSaving, setBatchSaving] = useState(false);
@@ -65,12 +65,14 @@ export default function AttendanceVerificationPage() {
   const [editDeptId, setEditDeptId] = useState("");
   const [editSaving, setEditSaving] = useState(false);
 
-  // Cek jika URL memiliki query parameter ?tab=unverified
+  // Cek jika URL memiliki query parameter ?tab=unverified atau ?tab=no_schedule
   useEffect(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       if (params.get("tab") === "unverified") {
         setActiveTab("UNVERIFIED");
+      } else if (params.get("tab") === "no_schedule") {
+        setActiveTab("NO_SCHEDULE");
       }
     }
   }, []);
@@ -132,42 +134,58 @@ export default function AttendanceVerificationPage() {
     void load();
   }, [date]);
 
-  // Pisahkan records menjadi terdaftar vs belum terverifikasi (hanya PIN)
-  const { verifiedRecords, unverifiedRecords } = useMemo(() => {
-    const verified: DailyAttendance[] = [];
+  // Pisahkan records menjadi:
+  // 1. scannedRecords: Karyawan terdaftar yang SUDAH scan finger (scanCount > 0)
+  // 2. noScheduleRecords: Karyawan terdaftar yang BELUM ada jadwal dan belum scan (scanCount === 0)
+  // 3. unverifiedRecords: Scan dari PIN perangkat yang belum memiliki nama resmi
+  const { scannedRecords, noScheduleRecords, unverifiedRecords } = useMemo(() => {
+    const scanned: DailyAttendance[] = [];
+    const noSchedule: DailyAttendance[] = [];
     const unverified: DailyAttendance[] = [];
+
     for (const r of records) {
-      if (isUnverifiedEmployee(r)) unverified.push(r);
-      else verified.push(r);
+      if (isUnverifiedEmployee(r)) {
+        unverified.push(r);
+      } else if (r.scanCount > 0) {
+        scanned.push(r);
+      } else if (!r.scheduleCode || r.autoStatus === "NO_SCHEDULE") {
+        noSchedule.push(r);
+      }
     }
-    return { verifiedRecords: verified, unverifiedRecords: unverified };
+    return { scannedRecords: scanned, noScheduleRecords: noSchedule, unverifiedRecords: unverified };
   }, [records]);
 
-  // Metric counts for summary cards
+  // Metric counts for summary cards & badges
   const metrics = useMemo(() => {
-    let verifiedNeedsReview = 0;
+    let scannedNeedsReview = 0;
     let offScan = 0;
     let confirmed = 0;
 
-    for (const r of verifiedRecords) {
+    for (const r of scannedRecords) {
       const notesText = r.notes.join(" ").toLowerCase();
       const isReviewAnomaly = ["NEEDS_REVIEW", "NO_SCHEDULE"].includes(r.autoStatus);
-      if (isReviewAnomaly && r.confirmationState !== "CONFIRMED") verifiedNeedsReview++;
+      if (isReviewAnomaly && r.confirmationState !== "CONFIRMED") scannedNeedsReview++;
       if (notesText.includes("cuti") || notesText.includes("off")) offScan++;
       if (r.confirmationState === "CONFIRMED") confirmed++;
     }
 
     return {
-      verifiedNeedsReview,
+      scannedNeedsReview,
+      noScheduleCount: noScheduleRecords.length,
       unverifiedCount: unverifiedRecords.length,
       offScan,
       confirmed,
-      totalVerified: verifiedRecords.length
+      totalScanned: scannedRecords.length
     };
-  }, [verifiedRecords, unverifiedRecords]);
+  }, [scannedRecords, noScheduleRecords, unverifiedRecords]);
 
   // Filtered rows untuk tab aktif
-  const currentBaseRecords = activeTab === "VERIFIED" ? verifiedRecords : unverifiedRecords;
+  const currentBaseRecords =
+    activeTab === "VERIFIED"
+      ? scannedRecords
+      : activeTab === "NO_SCHEDULE"
+      ? noScheduleRecords
+      : unverifiedRecords;
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -180,7 +198,7 @@ export default function AttendanceVerificationPage() {
 
       if (!matchSearch) return false;
 
-      if (activeTab === "UNVERIFIED") return true;
+      if (activeTab === "UNVERIFIED" || activeTab === "NO_SCHEDULE") return true;
 
       const notesText = record.notes.join(" ").toLowerCase();
       switch (filterCategory) {
@@ -348,8 +366,8 @@ export default function AttendanceVerificationPage() {
         title="Verifikasi absensi"
         description="Sistem menghitung status dari roster, profil kerja, dan scan X105. Admin menangani pengecualian serta memisahkan scan yang belum bernama agar mudah diverifikasi."
         action={
-          <StatusBadge tone={metrics.verifiedNeedsReview > 0 ? "pending" : "on-time"}>
-            {metrics.verifiedNeedsReview > 0 ? `${metrics.verifiedNeedsReview} perlu perhatian` : "Semua selesai"}
+          <StatusBadge tone={metrics.scannedNeedsReview > 0 ? "pending" : "on-time"}>
+            {metrics.scannedNeedsReview > 0 ? `${metrics.scannedNeedsReview} perlu perhatian` : "Semua selesai"}
           </StatusBadge>
         }
       />
@@ -359,22 +377,22 @@ export default function AttendanceVerificationPage() {
         <div className="verify-stat-card card-verify-review">
           <div className="stat-icon" aria-hidden="true">📋</div>
           <div className="stat-content">
-            <span className="stat-label">Antrean Karyawan Terdaftar</span>
-            <strong className="stat-value">{metrics.verifiedNeedsReview}</strong>
+            <span className="stat-label">Antrean Verifikasi Scan</span>
+            <strong className="stat-value">{metrics.scannedNeedsReview}</strong>
           </div>
         </div>
 
         <div
           className="verify-stat-card card-verify-anomaly"
           style={{ cursor: "pointer" }}
-          onClick={() => setActiveTab("UNVERIFIED")}
-          title="Klik untuk membuka tab Scan Belum Teridentifikasi"
+          onClick={() => setActiveTab("NO_SCHEDULE")}
+          title="Klik untuk melihat karyawan yang belum memiliki jadwal kerja"
         >
-          <div className="stat-icon" aria-hidden="true">⚠️</div>
+          <div className="stat-icon" aria-hidden="true">📅</div>
           <div className="stat-content">
-            <span className="stat-label">Scan Belum Teridentifikasi</span>
-            <strong className="stat-value" style={{ color: metrics.unverifiedCount > 0 ? "#c2410c" : undefined }}>
-              {metrics.unverifiedCount}
+            <span className="stat-label">Belum Ada Jadwal</span>
+            <strong className="stat-value" style={{ color: metrics.noScheduleCount > 0 ? "#b45309" : undefined }}>
+              {metrics.noScheduleCount}
             </strong>
           </div>
         </div>
@@ -398,7 +416,7 @@ export default function AttendanceVerificationPage() {
 
       {/* Main Container Panel */}
       <section className="panel" style={{ padding: "20px 24px" }}>
-        {/* Tab Pemisah: Karyawan Terdaftar vs Scan Belum Teridentifikasi */}
+        {/* 3 Tab Pemisah: Verifikasi Scan vs Belum Ada Jadwal vs Scan Tanpa Nama */}
         <div className="verify-tabs" role="tablist">
           <button
             type="button"
@@ -407,8 +425,23 @@ export default function AttendanceVerificationPage() {
             role="tab"
             aria-selected={activeTab === "VERIFIED"}
           >
-            <span className="verify-tab-title">📋 Antrean Karyawan Terdaftar</span>
-            <span className="verify-tab-badge badge-primary">{metrics.verifiedNeedsReview}</span>
+            <span className="verify-tab-title">📋 Antrean Verifikasi Scan</span>
+            <span className="verify-tab-badge badge-primary">{metrics.scannedNeedsReview}</span>
+          </button>
+
+          <button
+            type="button"
+            className={`verify-tab-btn ${activeTab === "NO_SCHEDULE" ? "is-active" : ""}`}
+            onClick={() => setActiveTab("NO_SCHEDULE")}
+            role="tab"
+            aria-selected={activeTab === "NO_SCHEDULE"}
+          >
+            <span className="verify-tab-title">📅 Belum Ada Jadwal</span>
+            {metrics.noScheduleCount > 0 ? (
+              <span className="verify-tab-badge badge-warning">{metrics.noScheduleCount}</span>
+            ) : (
+              <span className="verify-tab-badge badge-muted">0</span>
+            )}
           </button>
 
           <button
@@ -482,8 +515,8 @@ export default function AttendanceVerificationPage() {
                 ariaLabel="Filter Kategori Verifikasi"
                 value={filterCategory}
                 options={[
-                  { value: "NEEDS_REVIEW", label: `Perlu Ditinjau (${metrics.verifiedNeedsReview})` },
-                  { value: "ALL", label: `Semua Terdaftar (${metrics.totalVerified})` },
+                  { value: "NEEDS_REVIEW", label: `Perlu Ditinjau (${metrics.scannedNeedsReview})` },
+                  { value: "ALL", label: `Semua Scan (${metrics.totalScanned})` },
                   { value: "OFF_LEAVE", label: `Scan Hari Off / Cuti (${metrics.offScan})` },
                   { value: "CONFIRMED", label: `Sudah Dikonfirmasi (${metrics.confirmed})` }
                 ]}
@@ -574,12 +607,16 @@ export default function AttendanceVerificationPage() {
             <strong>
               {activeTab === "UNVERIFIED"
                 ? "Bagus! Tidak ada scan yang belum teridentifikasi pada tanggal ini."
-                : "Tidak ada antrean verifikasi pada kriteria ini."}
+                : activeTab === "NO_SCHEDULE"
+                ? "Bagus! Seluruh karyawan aktif telah memiliki jadwal kerja atau pola roster."
+                : "Tidak ada antrean verifikasi scan pada kriteria ini."}
             </strong>
             <p>
               {activeTab === "UNVERIFIED"
                 ? "Semua data scan dari perangkat X105 telah cocok dengan karyawan terdaftar."
-                : "Ubah kategori filter atau gunakan tanggal lain untuk melihat data absensi."}
+                : activeTab === "NO_SCHEDULE"
+                ? "Tidak ada karyawan tanpa jadwal yang perlu diatur pada tanggal ini."
+                : "Semua karyawan yang melakukan scan finger sudah terverifikasi atau tidak memiliki anomali."}
             </p>
           </div>
         ) : null}
@@ -823,7 +860,125 @@ export default function AttendanceVerificationPage() {
           </div>
         ) : null}
 
-        {/* TAB 2: TABEL SCAN BELUM TERIDENTIFIKASI (HANYA ID / PIN MESIN) */}
+        {/* TAB 2: TABEL KARYAWAN BELUM ADA JADWAL (0 SCAN) */}
+        {!loading && filtered.length > 0 && activeTab === "NO_SCHEDULE" ? (
+          <div>
+            <div
+              className="unverified-alert-banner"
+              style={{
+                background: "#f8fafc",
+                borderColor: "#0f172a",
+                borderLeftColor: "#64748b",
+                marginBottom: "16px"
+              }}
+            >
+              <span className="unverified-alert-icon" aria-hidden="true">📅</span>
+              <div className="unverified-alert-text">
+                <strong>Daftar Karyawan Belum Memiliki Jadwal Kerja</strong>
+                <div>
+                  Karyawan aktif di bawah ini belum memiliki jadwal kerja tetap atau kelompok roster, dan belum melakukan
+                  scan finger pada tanggal {date}. Atur pola kerja mereka agar absensi terhitung otomatis.
+                </div>
+              </div>
+              <a
+                href="/admin/karyawan"
+                className="unverified-alert-btn"
+                style={{ background: "#0f172a" }}
+              >
+                Atur di Data Karyawan →
+              </a>
+            </div>
+
+            <div className="ref-table-card">
+              <div className="ref-table-wrap">
+                <table className="ref-attendance-table">
+                  <thead>
+                    <tr>
+                      <th style={{ minWidth: "220px" }}>Karyawan</th>
+                      <th style={{ minWidth: "220px" }}>Departemen & Site</th>
+                      <th style={{ minWidth: "200px" }}>Deteksi Scan Finger</th>
+                      <th style={{ minWidth: "250px" }}>Status Jadwal</th>
+                      <th style={{ minWidth: "180px", textAlign: "center" }}>Tindakan</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((record) => (
+                      <tr key={`${record.employeeId}-${record.attendanceDate}`}>
+                        {/* Karyawan */}
+                        <td>
+                          <div className="ref-employee-cell">
+                            <div
+                              className="ref-avatar"
+                              style={{ backgroundColor: getAvatarColor(record.employeeName) }}
+                              title={record.employeeName}
+                              aria-hidden="true"
+                            >
+                              {getInitials(record.employeeName)}
+                            </div>
+                            <div className="ref-employee-meta">
+                              <strong className="ref-employee-name">{record.employeeName}</strong>
+                              <span className="ref-employee-nip">NIP: {record.employeeCode}</span>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Departemen & Site */}
+                        <td>
+                          <strong>{record.departmentName ?? "Belum dipetakan"}</strong>
+                          <span className="ref-dept-name" style={{ display: "block", marginTop: "2px" }}>
+                            Site Sangatta
+                          </span>
+                        </td>
+
+                        {/* Deteksi Scan */}
+                        <td>
+                          <span
+                            className="verify-scan-chip"
+                            style={{ background: "#f8fafc", borderColor: "#cbd5e1", color: "#64748b" }}
+                          >
+                            0 Scan Terdeteksi
+                          </span>
+                        </td>
+
+                        {/* Status Jadwal */}
+                        <td>
+                          <div className="verify-system-cell">
+                            <div className="verify-anomaly-pill anomaly-pill-pending">
+                              <span>❓</span>
+                              <span>Tanpa Jadwal Kerja</span>
+                            </div>
+                            <span className="verify-system-desc" style={{ color: "#64748b" }}>
+                              Belum ada profil atau roster aktif
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Tindakan */}
+                        <td style={{ textAlign: "center" }}>
+                          <a
+                            href="/admin/karyawan"
+                            className="verify-submit-btn"
+                            style={{
+                              textDecoration: "none",
+                              display: "inline-flex",
+                              padding: "0 12px",
+                              height: "32px",
+                              fontSize: "11.5px"
+                            }}
+                          >
+                            <span>⚙️ Atur Profil</span>
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {/* TAB 3: TABEL SCAN BELUM TERIDENTIFIKASI (HANYA ID / PIN MESIN) */}
         {!loading && filtered.length > 0 && activeTab === "UNVERIFIED" ? (
           <div className="ref-table-card">
             <div className="ref-table-wrap">
