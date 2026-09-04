@@ -8,6 +8,7 @@ import { authRoutes } from "./routes/auth";
 import { attendanceRulesRoutes } from "./routes/attendance-rules";
 import { masterDataRoutes } from "./routes/master-data";
 import { schedulingRoutes } from "./routes/scheduling";
+import { leaveRoutes } from "./routes/leave";
 import { addEvents, clearEvents, listEvents } from "./store";
 
 const webOrigins = (Bun.env.WEB_ORIGIN ?? "http://localhost:3000")
@@ -32,6 +33,7 @@ export const app = new Elysia()
   .use(authRoutes)
   .use(masterDataRoutes)
   .use(schedulingRoutes)
+  .use(leaveRoutes)
   .use(attendanceRulesRoutes)
   .get("/health", () => ({ status: "ok", time: new Date().toISOString() }))
   .get("/api/events", ({ request, query }) => {

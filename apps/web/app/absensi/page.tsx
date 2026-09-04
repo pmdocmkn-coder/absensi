@@ -8,20 +8,10 @@ export default function AttendancePage() {
   return (
     <>
       <PageHeader
-        title="Absensi karyawan"
-        description="Rekap harian dari roster, profil kerja, dan scan Solution X105. Status diperbarui otomatis dan kasus khusus dapat dikonfirmasi admin."
+        title="Absensi Karyawan"
+        description="Monitoring kehadiran real-time berbasis scan biometrik Solution X105, kalender roster operasional, dan status kerja terintegrasi."
       />
-      <div className="notice">
-        <strong>Status otomatis</strong>
-        <span>Scan pertama menjadi waktu masuk, scan terakhir menjadi waktu keluar. Roster harian mengalahkan profil kerja reguler.</span>
-      </div>
-      <section className="panel">
-        <div className="panel-heading">
-          <div>
-            <h2>Absensi harian karyawan</h2>
-          <p>Aktivitas scan terbaru tampil paling atas dan diperbarui setiap 5 detik.</p>
-          </div>
-        </div>
+      <section className="panel" style={{ padding: "20px 24px" }}>
         <DailyAttendanceTable />
       </section>
       <section className="panel raw-log-panel">

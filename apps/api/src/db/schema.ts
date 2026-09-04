@@ -7,6 +7,8 @@ export type AttendanceAutoStatus = "PRESENT" | "LATE" | "OVERTIME" | "ON_CALL" |
 export type AttendanceConfirmedStatus = Exclude<AttendanceAutoStatus, "PENDING" | "NO_SCHEDULE">;
 export type EmployeeWorkMode = "FIXED" | "ROSTER" | "NONE";
 export type RosterBackupReason = "LEAVE" | "SICK" | "PERMISSION" | "TRAINING" | "OUT_OF_OFFICE" | "STAFFING" | "OTHER";
+export type LeaveType = "ANNUAL" | "SICK" | "FAMILY" | "MATERNITY" | "SPECIAL";
+export type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED";
 
 export const schemaMigrations = sqliteTable("schema_migrations", {
   version: integer("version").primaryKey(),
@@ -208,3 +210,22 @@ export const attendanceEvaluations = sqliteTable("attendance_evaluations", {
   index("attendance_evaluations_date_idx").on(table.attendanceDate),
   index("attendance_evaluations_status_idx").on(table.autoStatus, table.confirmedStatus)
 ]);
+
+export const leaveRequests = sqliteTable("leave_requests", {
+  id: text("id").primaryKey(),
+  employeeId: integer("employee_id").notNull().references(() => employees.id),
+  leaveType: text("leave_type").$type<LeaveType>().notNull(),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date").notNull(),
+  totalDays: integer("total_days").notNull().default(1),
+  reason: text("reason").notNull(),
+  status: text("status").$type<LeaveStatus>().notNull().default("APPROVED"),
+  approvedByEmployeeId: integer("approved_by_employee_id").references(() => employees.id),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull()
+}, (table) => [
+  index("leave_requests_employee_idx").on(table.employeeId),
+  index("leave_requests_dates_idx").on(table.startDate, table.endDate),
+  index("leave_requests_status_idx").on(table.status)
+]);
+

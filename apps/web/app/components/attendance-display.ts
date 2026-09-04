@@ -72,3 +72,93 @@ export function shortTime(value: string | null) {
 export function formatScanTime(value: string | null) {
   return value?.slice(11, 19) ?? "Belum ada";
 }
+
+export function getInitials(name: string) {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 0 || !parts[0]) return "??";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[parts.length - 1]![0]}`.toUpperCase();
+}
+
+const AVATAR_COLORS = [
+  "#1e3a8a", // navy
+  "#047857", // emerald
+  "#b45309", // amber
+  "#6d28d9", // purple
+  "#be185d", // pink
+  "#0f766e", // teal
+  "#374151"  // dark gray
+];
+
+export function getAvatarColor(identifier: string) {
+  let hash = 0;
+  for (let i = 0; i < identifier.length; i++) {
+    hash = identifier.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[index]!;
+}
+
+export function formatScheduleDisplay(record: Pick<DailyAttendance, "status" | "scheduleCode" | "scheduleName" | "scheduledStartAt" | "scheduledEndAt">) {
+  if (record.status === "OFF") return "OFF (Jadwal Libur Shift)";
+  if (record.status === "ON_CALL") return "OFF (Reguler) -> Siaga On-Call";
+  if (record.status === "LEAVE") return "OFF (Sedang Cuti)";
+  
+  if (record.scheduledStartAt && record.scheduledEndAt) {
+    const start = shortTime(record.scheduledStartAt);
+    const end = shortTime(record.scheduledEndAt);
+    const label = record.scheduleName ? ` (${record.scheduleName})` : "";
+    return `${start} - ${end}${label}`;
+  }
+
+  if (record.scheduleName) return record.scheduleName;
+  if (record.scheduleCode) return record.scheduleCode;
+  return "Belum ada jadwal";
+}
+
+export function getInformativeNote(record: Pick<DailyAttendance, "status" | "lateMinutes" | "overtimeMinutes" | "checkInAt" | "checkOutAt" | "notes">): string {
+  // Sedang Cuti requirement: "Sedang Cuti. gitu aja keteranganya"
+  if (record.status === "LEAVE") return "Sedang Cuti";
+
+  if (record.status === "OFF") return "Libur Roster Reguler";
+  if (record.status === "ON_CALL") return "Auto-Detect Finger: Tap di luar jadwal reguler";
+
+  if (record.status === "LATE") {
+    return record.lateMinutes > 0 ? `Terlambat ${record.lateMinutes} menit` : "Terlambat";
+  }
+
+  if (record.status === "OVERTIME") {
+    return record.overtimeMinutes > 0 ? `Lembur disetujui (+${record.overtimeMinutes} menit)` : "Lembur disetujui";
+  }
+
+  if (record.status === "PRESENT") {
+    if (record.checkInAt && record.checkOutAt) return "Sudah Tap Masuk & Pulang";
+    return "Tepat Waktu";
+  }
+
+  if (record.status === "ABSENT") return "Belum melakukan tap sidik jari";
+  if (record.status === "PENDING") return "Jadwal shift siang (Menunggu Jam Masuk)";
+
+  if (record.notes[0]) return record.notes[0];
+  return "Perlu verifikasi data";
+}
+
+export function attendanceReason(record: Pick<DailyAttendance, "status" | "checkInAt" | "checkOutAt" | "scheduleCode" | "notes">) {
+  if (record.status === "LEAVE") return "Sedang Cuti";
+  if (record.notes[0]) return record.notes[0];
+  if (!record.scheduleCode) return "Belum ada roster atau profil kerja";
+  if (record.checkOutAt && !record.checkInAt) return "Tidak absen masuk";
+  if (record.checkInAt && !record.checkOutAt) return record.status === "PENDING" ? "Menunggu absen pulang" : "Tidak absen pulang";
+  if (record.checkInAt && record.checkOutAt) return "Sudah Tap Masuk & Pulang";
+  if (record.status === "OFF") return "Libur Roster Reguler";
+  if (record.status === "PENDING") return "Menunggu absen masuk";
+  if (record.status === "ABSENT") return "Belum melakukan tap sidik jari";
+  return "Tidak ada scan absensi";
+}
+
+export function attendanceReasonDetails(record: Pick<DailyAttendance, "notes" | "scanCount" | "confirmationState" | "confirmationNote">) {
+  const details = [...record.notes.slice(1), `${record.scanCount} scan X105`];
+  details.push(record.confirmationState === "CONFIRMED" ? "Dikonfirmasi admin" : "Evaluasi otomatis");
+  if (record.confirmationNote) details.push(`Catatan admin: ${record.confirmationNote}`);
+  return details.join(" · ");
+}

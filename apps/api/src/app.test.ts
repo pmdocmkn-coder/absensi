@@ -246,6 +246,96 @@ describe("authentication and master-data API", () => {
     expect(payload.records[0]?.notes).toContain("Steady Day otomatis berdasarkan departemen");
   });
 
+  test("applies a Crew A/B/C rotation automatically across departments and lets a manual roster override it", async () => {
+    const departmentResponse = await app.handle(jsonRequest("/api/departments", "POST", {
+      siteId: "site-default",
+      code: "HELP-DESK-ROSTER",
+      name: "Help Desk Roster"
+    }, adminCookie));
+    const department = await departmentResponse.json() as { id: string };
+
+    const employeeResponse = await app.handle(jsonRequest("/api/employees", "POST", {
+      employeeCode: "EMP-HELP-CREW-B",
+      name: "Karyawan Help Desk Crew B",
+      siteId: "site-default",
+      departmentId: department.id
+    }, adminCookie));
+    const employee = await employeeResponse.json() as { id: number };
+
+    const modeResponse = await app.handle(jsonRequest(`/api/employee-work-modes/${employee.id}`, "PUT", {
+      mode: "ROSTER",
+      rosterGroup: "Crew B"
+    }, adminCookie));
+    expect(modeResponse.status).toBe(200);
+
+    const automaticResponse = await app.handle(jsonRequest(`/api/attendance/daily?from=2026-08-17&to=2026-08-17&employeeId=${employee.id}`, "GET", undefined, adminCookie));
+    const automatic = await automaticResponse.json() as { records: Array<{ scheduleCode: string | null; notes: string[] }> };
+    expect(automatic.records[0]?.scheduleCode).toBe("SHIFT_PAGI");
+    expect(automatic.records[0]?.notes).toContain("Pola Crew B otomatis");
+
+    const templatesResponse = await app.handle(jsonRequest("/api/schedule-templates", "GET", undefined, adminCookie));
+    const templatesPayload = await templatesResponse.json() as { records: Array<{ id: string; code: string }> };
+    const nightTemplate = templatesPayload.records.find((template) => template.code === "SHIFT_MALAM")!;
+    const overrideResponse = await app.handle(jsonRequest("/api/roster", "POST", {
+      employeeId: employee.id,
+      assignmentDate: "2026-08-17",
+      assignmentType: "REGULAR",
+      scheduleTemplateId: nightTemplate.id,
+      notes: "Perubahan shift khusus"
+    }, adminCookie));
+    expect(overrideResponse.status).toBe(201);
+
+    const overriddenResponse = await app.handle(jsonRequest(`/api/attendance/daily?from=2026-08-17&to=2026-08-17&employeeId=${employee.id}`, "GET", undefined, adminCookie));
+    const overridden = await overriddenResponse.json() as { records: Array<{ scheduleCode: string | null; notes: string[] }> };
+    expect(overridden.records[0]?.scheduleCode).toBe("SHIFT_MALAM");
+    expect(overridden.records[0]?.notes).not.toContain("Pola Crew B otomatis");
+  });
+
+  test("distinguishes a lone check-out from a forgotten check-in and explains both single-scan cases", async () => {
+    const departmentResponse = await app.handle(jsonRequest("/api/departments", "POST", {
+      siteId: "site-default",
+      code: "SINGLE-SCAN",
+      name: "Single Scan Test"
+    }, adminCookie));
+    const department = await departmentResponse.json() as { id: string };
+
+    const employeeResponse = await app.handle(jsonRequest("/api/employees", "POST", {
+      employeeCode: "EMP-SINGLE-SCAN",
+      name: "Karyawan Scan Tunggal",
+      siteId: "site-default",
+      departmentId: department.id,
+      deviceMappings: [{ deviceSerial: "X105-SINGLE-SCAN", deviceUserCode: "single-scan" }]
+    }, adminCookie));
+    const employee = await employeeResponse.json() as { id: number };
+
+    const uploadResponse = await app.handle(new Request("http://localhost/iclock/cdata?SN=X105-SINGLE-SCAN&table=ATTLOG", {
+      method: "POST",
+      body: [
+        "single-scan\t2026-08-31 16:58:27\t0\t1",
+        "single-scan\t2026-09-01 07:58:27\t0\t1"
+      ].join("\n")
+    }));
+    expect(uploadResponse.status).toBe(200);
+
+    const missingInResponse = await app.handle(jsonRequest(`/api/attendance/daily?from=2026-08-31&to=2026-08-31&employeeId=${employee.id}`, "GET", undefined, adminCookie));
+    const missingIn = await missingInResponse.json() as { records: Array<{ autoStatus: string; checkInAt: string | null; checkOutAt: string | null; notes: string[] }> };
+    expect(missingIn.records[0]).toMatchObject({
+      autoStatus: "NEEDS_REVIEW",
+      checkInAt: null,
+      checkOutAt: "2026-08-31 16:58:27"
+    });
+    expect(missingIn.records[0]?.notes[0]).toBe("Tidak absen masuk");
+
+    const missingOutResponse = await app.handle(jsonRequest(`/api/attendance/daily?from=2026-09-01&to=2026-09-01&employeeId=${employee.id}`, "GET", undefined, adminCookie));
+    const missingOut = await missingOutResponse.json() as { records: Array<{ autoStatus: string; checkInAt: string | null; checkOutAt: string | null; notes: string[] }> };
+    expect(missingOut.records[0]).toMatchObject({
+      autoStatus: "NEEDS_REVIEW",
+      checkInAt: "2026-09-01 07:58:27",
+      checkOutAt: null
+    });
+    expect(missingOut.records[0]?.notes[0]).toBe("Tidak absen pulang");
+  });
+
   test("allows admin to create a regular roster and an on-call overlay", async () => {
     const employeesResponse = await app.handle(jsonRequest("/api/employees", "GET", undefined, adminCookie));
     const employeePayload = await employeesResponse.json() as { records: Array<{ id: number; employeeCode: string }> };
@@ -366,10 +456,12 @@ describe("authentication and master-data API", () => {
     expect(uploadResponse.status).toBe(200);
 
     const dailyResponse = await app.handle(jsonRequest(`/api/attendance/daily?from=2026-09-01&to=2026-09-01&employeeId=${nightEmployeeId}`, "GET", undefined, adminCookie));
-    const payload = await dailyResponse.json() as { records: Array<{ scheduleCode: string; checkOutAt: string | null; overtimeMinutes: number; autoStatus: string }> };
+    const payload = await dailyResponse.json() as { records: Array<{ scheduleCode: string; checkInAt: string | null; checkOutAt: string | null; scanCount: number; overtimeMinutes: number; autoStatus: string }> };
     expect(dailyResponse.status).toBe(200);
     expect(payload.records[0]?.scheduleCode).toBe("SHIFT_MALAM");
+    expect(payload.records[0]?.checkInAt).toBe("2026-09-01 17:55:00");
     expect(payload.records[0]?.checkOutAt).toBe("2026-09-02 06:20:00");
+    expect(payload.records[0]?.scanCount).toBe(2);
     expect(payload.records[0]?.overtimeMinutes).toBe(5);
     expect(payload.records[0]?.autoStatus).toBe("OVERTIME");
   });
@@ -413,13 +505,15 @@ describe("authentication and master-data API", () => {
       undefined,
       adminCookie
     ));
-    const dailyPayload = await dailyResponse.json() as { records: Array<{ attendanceDate: string; autoStatus: string; overtimeMinutes: number }> };
+    const dailyPayload = await dailyResponse.json() as { records: Array<{ attendanceDate: string; autoStatus: string; overtimeMinutes: number; notes: string[] }> };
     expect(dailyResponse.status).toBe(200);
     expect(dailyPayload.records.find((record) => record.attendanceDate === "2026-08-30")?.autoStatus).toBe("OVERTIME");
     expect(dailyPayload.records.find((record) => record.attendanceDate === "2026-08-28")?.autoStatus).toBe("ABSENT");
     expect(dailyPayload.records.find((record) => record.attendanceDate === "2026-08-31")?.autoStatus).toBe("OVERTIME");
     expect(dailyPayload.records.find((record) => record.attendanceDate === "2026-08-31")?.overtimeMinutes).toBe(30);
     expect(dailyPayload.records.find((record) => record.attendanceDate === "2026-09-01")?.autoStatus).toBe("NEEDS_REVIEW");
+    expect(dailyPayload.records.find((record) => record.attendanceDate === "2026-08-28")?.notes[0]).toBe("Tidak absen masuk dan pulang");
+    expect(dailyPayload.records.every((record) => Boolean(record.notes[0]))).toBe(true);
 
     const confirmationResponse = await app.handle(jsonRequest(`/api/attendance/daily/${employeeId}/2026-08-30/confirm`, "PATCH", {
       status: "OVERTIME",
@@ -495,5 +589,33 @@ describe("authentication and master-data API", () => {
 
     const deleteResponse = await app.handle(jsonRequest("/api/events", "DELETE", undefined, loginResult.cookie));
     expect(deleteResponse.status).toBe(403);
+  });
+
+  test("creates, lists, and approves leave requests while synchronizing roster", async () => {
+    const listEmployeesResponse = await app.handle(jsonRequest("/api/employees", "GET", undefined, adminCookie));
+    const employeePayload = await listEmployeesResponse.json() as { records: Array<{ id: number; employeeCode: string }> };
+    const emp = employeePayload.records[0]!;
+
+    const createLeaveResponse = await app.handle(jsonRequest("/api/leave", "POST", {
+      employeeId: emp.id,
+      leaveType: "ANNUAL",
+      startDate: "2026-09-10",
+      endDate: "2026-09-12",
+      reason: "Cuti tahunan keluarga",
+      status: "APPROVED"
+    }, adminCookie));
+    expect(createLeaveResponse.status).toBe(201);
+    const leaveData = await createLeaveResponse.json() as { id: string; totalDays: number; status: string };
+    expect(leaveData.totalDays).toBe(3);
+    expect(leaveData.status).toBe("APPROVED");
+
+    const listLeaveResponse = await app.handle(jsonRequest("/api/leave", "GET", undefined, adminCookie));
+    const leaveList = await listLeaveResponse.json() as { records: Array<{ id: string; reason: string }> };
+    expect(listLeaveResponse.status).toBe(200);
+    expect(leaveList.records.some((r) => r.id === leaveData.id)).toBe(true);
+
+    const rosterResponse = await app.handle(jsonRequest(`/api/roster?from=2026-09-10&to=2026-09-12&employeeId=${emp.id}`, "GET", undefined, adminCookie));
+    const rosterList = await rosterResponse.json() as { records: Array<{ assignmentDate: string; assignmentType: string }> };
+    expect(rosterList.records.filter((r) => r.assignmentType === "LEAVE").length).toBe(3);
   });
 });

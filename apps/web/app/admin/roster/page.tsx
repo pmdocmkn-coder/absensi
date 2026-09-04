@@ -33,8 +33,8 @@ type ScheduleProfile = {
 };
 
 type EmployeeWorkMode = { employeeId: number; mode: "FIXED" | "ROSTER" | "NONE"; rosterGroup: string | null };
-type RosterView = "OVERVIEW" | "PIT" | "STEADY" | "EXCEPTION" | "UNCONFIGURED" | "ALL";
-type DisplayGroupKind = "PIT" | "STEADY" | "EXCEPTION" | "UNCONFIGURED";
+type RosterView = "OVERVIEW" | "PIT" | "ROSTER" | "STEADY" | "EXCEPTION" | "UNCONFIGURED" | "ALL";
+type DisplayGroupKind = "PIT" | "ROSTER" | "STEADY" | "EXCEPTION" | "UNCONFIGURED";
 type DisplayGroup = {
   id: string;
   departmentKey: string;
@@ -98,6 +98,7 @@ const backupReasonOptions: DropdownOption[] = [
 const rosterViewOptions: DropdownOption[] = [
   { value: "OVERVIEW", label: "Ringkas per kelompok" },
   { value: "PIT", label: "Hanya Pit Crew" },
+  { value: "ROSTER", label: "Hanya shift roster" },
   { value: "STEADY", label: "Hanya Steady Day" },
   { value: "EXCEPTION", label: "Jadwal khusus per orang" },
   { value: "UNCONFIGURED", label: "Belum diatur" },
@@ -239,6 +240,7 @@ export default function RosterPage() {
   const [backupReasonDetails, setBackupReasonDetails] = useState("");
   const [backupNotes, setBackupNotes] = useState("");
   const overviewScrollRef = useRef<HTMLDivElement>(null);
+  const detailScrollRef = useRef<HTMLDivElement>(null);
 
   const periodEnd = useMemo(() => new Date(periodStart.getFullYear(), periodStart.getMonth() + 1, 15), [periodStart]);
   const days = useMemo(() => {
@@ -394,6 +396,19 @@ export default function RosterPage() {
     const deptName = employee.departmentName ?? "Belum dipetakan";
     const deptKey = employee.departmentName ? `dept:${(employee.departmentCode || employee.departmentName).toLowerCase().replace(/\s+/g, "_")}` : "unmapped";
 
+    if (mode?.mode === "ROSTER" && rosterGroup) {
+      const crew = crewLetter(rosterGroup);
+      const label = crew ? `Crew ${crew}` : rosterGroup;
+      return {
+        id: `roster:${deptKey}:${label.toLowerCase().replace(/\s+/g, "_")}`,
+        departmentKey: deptKey,
+        departmentName: deptName,
+        label,
+        subLabel: crew ? "Rotasi 3P / 3M / 3OFF" : "Shift roster",
+        kind: "ROSTER"
+      };
+    }
+
     if (isSpecialProfile) {
       return {
         id: `exception:${employee.id}`,
@@ -437,6 +452,7 @@ export default function RosterPage() {
       const matchesView = rosterView === "ALL"
         || (rosterView === "OVERVIEW" && group.kind !== "UNCONFIGURED")
         || (rosterView === "PIT" && group.kind === "PIT")
+        || (rosterView === "ROSTER" && group.kind === "ROSTER")
         || (rosterView === "STEADY" && group.kind === "STEADY")
         || (rosterView === "EXCEPTION" && group.kind === "EXCEPTION")
         || (rosterView === "UNCONFIGURED" && group.kind === "UNCONFIGURED");
@@ -451,7 +467,7 @@ export default function RosterPage() {
       if (current) current.employees.push(employee);
       else grouped.set(descriptor.id, { ...descriptor, employees: [employee] });
     }
-    const order: Record<DisplayGroupKind, number> = { PIT: 0, STEADY: 1, EXCEPTION: 2, UNCONFIGURED: 3 };
+    const order: Record<DisplayGroupKind, number> = { PIT: 0, ROSTER: 1, STEADY: 2, EXCEPTION: 3, UNCONFIGURED: 4 };
     return [...grouped.values()].sort((left, right) => order[left.kind] - order[right.kind] || left.label.localeCompare(right.label, "id-ID"));
   }, [displayGroupFor, filteredEmployees]);
 
@@ -542,6 +558,48 @@ export default function RosterPage() {
     return result;
   }, [backups, days]);
   const patternPreviewByCell = useMemo(() => new Map(patternPreview.map((draft) => [cellKey(draft.employeeId, draft.assignmentDate), draft])), [patternPreview]);
+  const automaticCellState = useCallback((employee: Employee, date: string) => {
+    const mode = modeFor(employee);
+    if (mode === "ROSTER") {
+      const letter = crewLetter(workModeByEmployee.get(employee.id)?.rosterGroup ?? null);
+      if (!letter) return null;
+      const index = positiveModulo(dateDifference(crewPatternReferenceDate, date) + crewPhaseOnReferenceDate[letter], crewPattern.length);
+      const shift = crewPattern[index]!;
+      if (shift === "OFF") return { label: "OFF", className: "shift-off", detail: `Off otomatis Crew ${letter}`, assignmentType: "OFF" as const, scheduleTemplateId: null };
+      const templateCode = shift === "P" ? "SHIFT_PAGI" : "SHIFT_MALAM";
+      const template = templates.find((item) => item.code === templateCode);
+      return {
+        label: shift,
+        className: shift === "P" ? "shift-morning" : "shift-night",
+        detail: `${shift === "P" ? "Shift Pagi" : "Shift Malam"} otomatis Crew ${letter}`,
+        assignmentType: "REGULAR" as const,
+        scheduleTemplateId: template?.id ?? null
+      };
+    }
+
+    if (mode !== "FIXED") return null;
+    const profile = profileByEmployee.get(employee.id);
+    const weekday = new Date(`${date}T00:00:00`).getDay() || 7;
+    if (!profile) {
+      if (!employee.departmentName) return null;
+      return [6, 7].includes(weekday)
+        ? { label: "OFF", className: "shift-off", detail: "Off otomatis akhir pekan", assignmentType: "OFF" as const, scheduleTemplateId: null }
+        : { label: "SD", className: "shift-steady", detail: "Steady Day otomatis berdasarkan departemen", assignmentType: "REGULAR" as const, scheduleTemplateId: templates.find((item) => item.code === "STEADY_DAY")?.id ?? null };
+    }
+    if (!profile.workdays.includes(weekday)) {
+      return { label: "OFF", className: "shift-off", detail: "Di luar hari kerja pada profil", assignmentType: "OFF" as const, scheduleTemplateId: null };
+    }
+    const templateId = profile.weeklyTemplates?.find((item) => item.day === weekday)?.scheduleTemplateId ?? profile.scheduleTemplateId;
+    const template = templateById.get(templateId);
+    const code = templateDisplayCode(template?.code ?? profile.scheduleTemplateCode, template?.name ?? profile.scheduleTemplateName);
+    return {
+      label: code,
+      className: scheduleClass(template?.code ?? profile.scheduleTemplateCode, template?.name ?? profile.scheduleTemplateName),
+      detail: `${template?.name ?? profile.scheduleTemplateName} otomatis dari profil kerja`,
+      assignmentType: "REGULAR" as const,
+      scheduleTemplateId: templateId
+    };
+  }, [modeFor, profileByEmployee, templateById, templates, workModeByEmployee]);
   const groupCellState = useCallback((group: DisplayGroup, date: string) => {
     const preview = group.employees.map((employee) => patternPreviewByCell.get(cellKey(employee.id, date))).filter((draft): draft is PatternDraft => Boolean(draft));
     if (preview.length > 0) {
@@ -552,31 +610,20 @@ export default function RosterPage() {
       return { label: `${preview.length}P`, className: "roster-group-mixed", detail: `${preview.length} jadwal dalam preview` };
     }
     const relevant = group.employees.flatMap((employee) => assignmentsByCell.get(cellKey(employee.id, date)) ?? []);
-    const fixedProfiles = group.employees.map((employee) => modeFor(employee) === "FIXED" ? profileByEmployee.get(employee.id) : undefined);
-    const isFixedProfileGroup = fixedProfiles.every(Boolean);
-    if (isFixedProfileGroup && relevant.length === 0) {
-      const weekday = new Date(`${date}T00:00:00`).getDay() || 7;
-      const workingProfiles = fixedProfiles.filter((profile) => profile!.workdays.includes(weekday)) as ScheduleProfile[];
-      if (workingProfiles.length === 0) return { label: "OFF", className: "shift-off", detail: "Di luar hari kerja" };
-      const dailyTemplates = workingProfiles.map((profile) => {
-        const dailyId = profile.weeklyTemplates?.find((item) => item.day === weekday)?.scheduleTemplateId ?? profile.scheduleTemplateId;
-        return templateById.get(dailyId) ?? { code: profile.scheduleTemplateCode, name: profile.scheduleTemplateName };
-      });
-      const labels = [...new Set(dailyTemplates.map((template) => templateDisplayCode(template.code, template.name)))];
-      if (labels.length === 1 && workingProfiles.length === group.employees.length) {
-        const template = dailyTemplates[0]!;
-        return { label: labels[0]!, className: scheduleClass(template.code, template.name), detail: `${template.name} otomatis dari profil kerja` };
+    if (relevant.length === 0) {
+      const automatic = group.employees.map((employee) => automaticCellState(employee, date)).filter((state): state is NonNullable<typeof state> => Boolean(state));
+      const labels = [...new Set(automatic.map((state) => state.label))];
+      if (labels.length === 1 && automatic.length === group.employees.length) {
+        return { label: labels[0]!, className: automatic[0]!.className, detail: automatic[0]!.detail };
       }
-      return { label: `${workingProfiles.length} POLA`, className: "roster-group-mixed", detail: `${workingProfiles.length} karyawan masuk jadwal tetap` };
-    }
-    if (group.kind === "STEADY" && relevant.length === 0) {
-      const isWeekend = [0, 6].includes(new Date(`${date}T00:00:00`).getDay());
-      return isWeekend ? { label: "OFF", className: "shift-off", detail: "Off akhir pekan" } : { label: "SD", className: "shift-steady", detail: "Steady Day otomatis" };
+      if (automatic.length > 0) {
+        return { label: `${automatic.length} POLA`, className: "roster-group-mixed", detail: `${automatic.length} karyawan mengikuti pola kerja otomatis` };
+      }
     }
     if (relevant.length === 0) {
       return group.kind === "PIT"
         ? { label: "ATUR", className: "roster-group-empty", detail: "Belum ada pola roster" }
-        : { label: "—", className: "roster-group-empty", detail: "Tidak ada penugasan" };
+        : { label: "-", className: "roster-group-empty", detail: "Tidak ada penugasan" };
     }
     const labels = [...new Set(relevant.map(assignmentLabel))];
     if (labels.length === 1 && relevant.length === group.employees.length) {
@@ -590,7 +637,7 @@ export default function RosterPage() {
       return { label: "1 OFF", className: "roster-group-mixed", detail: "1 karyawan Off khusus" };
     }
     return { label: `${relevant.length}★`, className: "roster-group-mixed", detail: `${relevant.length} penugasan khusus (${labels.join(", ")})` };
-  }, [assignmentsByCell, modeFor, patternPreviewByCell, profileByEmployee, templateById]);
+  }, [assignmentsByCell, automaticCellState, patternPreviewByCell]);
 
   const groupOptions = useMemo<DropdownOption[]>(() => availableGroups.map((group) => ({ value: group, label: group })), [availableGroups]);
   const departmentOptions = useMemo<DropdownOption[]>(() => [
@@ -610,8 +657,11 @@ export default function RosterPage() {
 
   const prepareEditor = (keys: string[], isBulk: boolean) => {
     const firstAssignment = keys.length === 1 ? assignmentsByCell.get(keys[0]!)?.[0] : undefined;
-    setDraftType(firstAssignment?.assignmentType ?? "REGULAR");
-    setDraftTemplateId(firstAssignment?.scheduleTemplateId ?? "");
+    const firstCell = keys.length === 1 ? parseCellKey(keys[0]!) : null;
+    const firstEmployee = firstCell ? employees.find((employee) => employee.id === firstCell.employeeId) : undefined;
+    const automatic = firstCell && firstEmployee ? automaticCellState(firstEmployee, firstCell.date) : null;
+    setDraftType(firstAssignment?.assignmentType ?? automatic?.assignmentType ?? "REGULAR");
+    setDraftTemplateId(firstAssignment?.scheduleTemplateId ?? automatic?.scheduleTemplateId ?? "");
     setDraftNotes(firstAssignment?.notes ?? "");
     setEditorKeys(keys);
     setBulkEditor(isBulk);
@@ -876,16 +926,15 @@ export default function RosterPage() {
   useEffect(() => {
     if (loading || displayGroups.length === 0 || today < from || today > to) return;
     const scrollToToday = () => {
-      const scrollArea = overviewScrollRef.current;
-      const currentCell = scrollArea?.querySelector<HTMLElement>("td.is-today");
-      if (!scrollArea || !currentCell) return;
-      const area = scrollArea.getBoundingClientRect();
-      const cell = currentCell.getBoundingClientRect();
-      const left = scrollArea.scrollLeft + cell.left - area.left - (scrollArea.clientWidth - cell.width) / 2;
-      scrollArea.scrollTo({
-        left: Math.max(0, left),
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
-      });
+      const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+      for (const scrollArea of [overviewScrollRef.current, detailScrollRef.current]) {
+        const currentCell = scrollArea?.querySelector<HTMLElement>("td.is-today");
+        if (!scrollArea || !currentCell) continue;
+        const area = scrollArea.getBoundingClientRect();
+        const cell = currentCell.getBoundingClientRect();
+        const left = scrollArea.scrollLeft + cell.left - area.left - (scrollArea.clientWidth - cell.width) / 2;
+        scrollArea.scrollTo({ left: Math.max(0, left), behavior });
+      }
     };
     const firstFrame = window.requestAnimationFrame(() => {
       window.requestAnimationFrame(scrollToToday);
@@ -895,7 +944,7 @@ export default function RosterPage() {
       window.cancelAnimationFrame(firstFrame);
       window.clearTimeout(fallback);
     };
-  }, [displayGroups.length, from, loading, to, today]);
+  }, [displayGroups.length, expandedGroups.length, from, loading, to, today]);
 
   const changePeriod = (amount: number) => {
     setPeriodStart((current) => addMonths(current, amount));
@@ -905,6 +954,33 @@ export default function RosterPage() {
     setPatternPreview([]);
     setNotice("");
   };
+
+  const renderDetailedEmployee = (employee: Employee) => (
+    <tr key={employee.id}>
+      <th scope="row"><span className="roster-preview-avatar" aria-hidden="true">{initials(employee.name)}</span><span><strong>{employee.name}</strong><small>{employee.employeeCode} | {groupFor(employee)} | {employee.departmentName ?? "Belum dipetakan"}</small></span></th>
+      {days.map((day) => {
+        const date = formatDate(day);
+        const key = cellKey(employee.id, date);
+        const cellAssignments = assignmentsByCell.get(key) ?? [];
+        const cellBackups = backupsByCell.get(key) ?? [];
+        const hasManualBase = cellAssignments.some((assignment) => ["REGULAR", "OFF", "LEAVE"].includes(assignment.assignmentType));
+        const automatic = hasManualBase ? null : automaticCellState(employee, date);
+        const hasSchedule = cellAssignments.length > 0 || Boolean(automatic);
+        const selected = selectedCells.includes(key) || editorKeys.includes(key);
+        return (
+          <td className={`${day.getDay() === 0 ? "is-sunday " : ""}${date < today ? "is-past " : ""}${date === today ? "is-today" : ""}`} key={key}>
+            <button type="button" className={`roster-simple-cell roster-live-cell${!hasSchedule ? " roster-simple-empty" : ""}${cellBackups.length ? " has-backup" : ""}`} aria-pressed={selected} aria-label={`${employee.name}, ${day.getDate()} ${monthNames[day.getMonth()]}, ${automatic ? automatic.detail : `${cellAssignments.length} penugasan manual`}${cellBackups.length ? ", menjalankan backup" : ""}`} title={cellBackups.length ? `Backup ${employees.find((item) => item.id === cellBackups[0]!.coveredEmployeeId)?.name ?? "karyawan"}` : automatic?.detail} onClick={() => selectCell(key)}>
+              {automatic ? <span className={`roster-live-code ${automatic.className}`} data-source="automatic">{automatic.label}</span> : null}
+              {cellAssignments.slice(0, automatic ? 1 : 2).map((assignment) => <span className={`roster-live-code ${assignmentClass(assignment)}`} key={assignment.id}>{assignmentLabel(assignment)}</span>)}
+              {!hasSchedule ? "+" : null}
+              {cellBackups.length ? <span className="roster-backup-code">BK</span> : null}
+              {cellAssignments.length > (automatic ? 1 : 2) ? <small>+{cellAssignments.length - (automatic ? 1 : 2)}</small> : null}
+            </button>
+          </td>
+        );
+      })}
+    </tr>
+  );
 
   return (
     <div className="roster-calendar-page">
@@ -978,13 +1054,17 @@ export default function RosterPage() {
                         <th scope="row" className="roster-group-header-cell">
                           <button
                             type="button"
-                            className="roster-group-title-button"
+                            className={`roster-group-title-button${expandedGroupIds.includes(group.id) ? " is-open" : ""}`}
                             aria-expanded={expandedGroupIds.includes(group.id)}
                             aria-label={`${expandedGroupIds.includes(group.id) ? "Sembunyikan" : "Lihat"} anggota ${group.label}`}
                             title={`${expandedGroupIds.includes(group.id) ? "Sembunyikan" : "Lihat"} anggota ${group.label}`}
                             onClick={() => toggleGroupDetails(group.id)}
                           >
-                            {group.label}
+                            <span className="roster-group-title-button-label">{group.label}</span>
+                            <span className="roster-group-title-button-state" aria-hidden="true">
+                              <b>{expandedGroupIds.includes(group.id) ? "−" : "+"}</b>
+                              {expandedGroupIds.includes(group.id) ? "Tutup" : "Buka"}
+                            </span>
                           </button>
                         </th>
                         {days.map((day) => {
@@ -1016,8 +1096,11 @@ export default function RosterPage() {
 
         {!loading && detailedEmployees.length > 0 ? (
           <section className="roster-detail-section" aria-label="Detail anggota kelompok">
-            <div className="roster-detail-heading"><div><strong>Jadwal per karyawan</strong><span>{expandedGroups.map((group) => group.label).join(", ")}</span></div><span>{detailedEmployees.length} karyawan ditampilkan</span></div>
-            <div className="roster-simple-scroll">
+            <div className="roster-detail-heading">
+              <div><strong>Jadwal per karyawan</strong><span><b>Data dibuka:</b> {expandedGroups.map((group) => group.departmentName === group.label ? group.label : `${group.departmentName} / ${group.label}`).join(", ")}</span></div>
+              <div className="roster-detail-heading-actions"><span>{detailedEmployees.length} karyawan ditampilkan</span><button type="button" onClick={() => setExpandedGroupIds([])}>Tutup semua</button></div>
+            </div>
+            <div className="roster-simple-scroll" ref={detailScrollRef}>
               <table className="roster-simple-table roster-detail-table">
                 <thead>
                   <tr className="roster-month-row"><th rowSpan={3}>Karyawan</th>{monthGroups.map((group) => <th colSpan={group.count} key={group.label}>{group.label}</th>)}</tr>
@@ -1030,28 +1113,21 @@ export default function RosterPage() {
                   })}</tr>
                 </thead>
                 <tbody>
-                  {detailedEmployees.map((employee) => (
-                    <tr key={employee.id}>
-                      <th scope="row"><span className="roster-preview-avatar" aria-hidden="true">{initials(employee.name)}</span><span><strong>{employee.name}</strong><small>{employee.employeeCode} | {groupFor(employee)} | {employee.departmentName ?? "Belum dipetakan"}</small></span></th>
-                    {days.map((day) => {
-                      const date = formatDate(day);
-                      const key = cellKey(employee.id, date);
-                      const cellAssignments = assignmentsByCell.get(key) ?? [];
-                      const cellBackups = backupsByCell.get(key) ?? [];
-                      const selected = selectedCells.includes(key) || editorKeys.includes(key);
-                      return (
-                        <td className={`${day.getDay() === 0 ? "is-sunday " : ""}${date < today ? "is-past " : ""}${date === today ? "is-today" : ""}`} key={key}>
-                          <button type="button" className={`roster-simple-cell roster-live-cell${cellAssignments.length === 0 ? " roster-simple-empty" : ""}${cellBackups.length ? " has-backup" : ""}`} aria-pressed={selected} aria-label={`${employee.name}, ${day.getDate()} ${monthNames[day.getMonth()]}, ${cellAssignments.length} penugasan${cellBackups.length ? ", menjalankan backup" : ""}`} title={cellBackups.length ? `Backup ${employees.find((item) => item.id === cellBackups[0]!.coveredEmployeeId)?.name ?? "karyawan"}` : undefined} onClick={() => selectCell(key)}>
-                            {cellAssignments.length === 0 ? "+" : cellAssignments.slice(0, 2).map((assignment) => <span className={`roster-live-code ${assignmentClass(assignment)}`} key={assignment.id}>{assignmentLabel(assignment)}</span>)}
-                            {cellBackups.length ? <span className="roster-backup-code">BK</span> : null}
-                            {cellAssignments.length > 2 ? <small>+{cellAssignments.length - 2}</small> : null}
-                          </button>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
+                  {expandedGroups.map((group) => (
+                    <Fragment key={`detail-${group.id}`}>
+                      <tr className="roster-detail-group-band">
+                        <th colSpan={days.length + 1} scope="rowgroup">
+                          <div>
+                            <span><strong>{group.departmentName}</strong>{group.departmentName !== group.label ? <small>{group.label}</small> : null}</span>
+                            <span className="roster-detail-group-meta">{group.employees.length} karyawan</span>
+                            <button type="button" onClick={() => toggleGroupDetails(group.id)}>Tutup</button>
+                          </div>
+                        </th>
+                      </tr>
+                      {group.employees.map(renderDetailedEmployee)}
+                    </Fragment>
+                  ))}
+                </tbody>
             </table>
             </div>
           </section>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { attendanceLabel, attendanceStatuses, attendanceTone, shortTime, type DailyAttendance, witaDate } from "../../components/attendance-display";
+import { attendanceLabel, attendanceReason, attendanceReasonDetails, attendanceStatuses, attendanceTone, shortTime, type DailyAttendance, witaDate } from "../../components/attendance-display";
 import { PageHeader } from "../../components/page-header";
 import { StatusBadge } from "../../components/status-badge";
 
@@ -75,7 +75,7 @@ export default function AttendanceVerificationPage() {
           <td><strong className="table-primary">{record.employeeName}</strong><small className="table-secondary">ID {record.employeeCode} · {record.departmentName ?? "Tanpa departemen"}</small></td>
           <td><code>{record.scheduleCode ?? "TANPA_JADWAL"}</code><small className="table-secondary">Masuk {shortTime(record.checkInAt)} · Keluar {shortTime(record.checkOutAt)} · {record.scanCount} scan</small></td>
           <td><StatusBadge tone={attendanceTone(record.autoStatus)}>{attendanceLabel(record.autoStatus)}</StatusBadge>{record.hasOnCall ? <small className="table-secondary"><StatusBadge tone="on-call">ON-CALL</StatusBadge></small> : null}</td>
-          <td className="detail-cell"><strong>{record.notes[0] ?? "Belum ada alasan"}</strong><small>{record.notes.slice(1).join(" · ")}</small></td>
+          <td className="detail-cell"><strong>{attendanceReason(record)}</strong><small>{attendanceReasonDetails(record)}</small></td>
           <td className="verification-action"><select value={drafts[record.employeeId] ?? record.status} onChange={(event) => setDrafts((current) => ({ ...current, [record.employeeId]: event.target.value }))}>{attendanceStatuses.map((status) => <option key={status} value={status}>{attendanceLabel(status)}</option>)}</select><input value={notes[record.employeeId] ?? ""} onChange={(event) => setNotes((current) => ({ ...current, [record.employeeId]: event.target.value }))} placeholder="Catatan koreksi" maxLength={1000} /><button className="secondary-button" type="button" onClick={() => void confirm(record)} disabled={saving === record.employeeId}>{saving === record.employeeId ? "MENYIMPAN..." : record.confirmationState === "CONFIRMED" ? "PERBARUI" : "KONFIRMASI"}</button></td>
         </tr>)}
       </tbody></table></div> : null}

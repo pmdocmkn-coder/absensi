@@ -99,6 +99,10 @@ const DEFAULT_ATTENDANCE_SETTINGS: AttendanceSettingsInput = {
   overtimeBufferMinutes: 15
 };
 
+const CREW_PATTERN = ["P", "P", "P", "M", "M", "M", "OFF", "OFF", "OFF"] as const;
+const CREW_PHASE_ON_REFERENCE_DATE = { A: 5, B: 8, C: 2 } as const;
+const CREW_PATTERN_REFERENCE_DATE = "2026-08-16";
+
 export function getAttendanceSettings(): AttendanceSettingsInput {
   return db.select({
     lateToleranceMinutes: attendanceSettings.lateToleranceMinutes,
@@ -137,6 +141,18 @@ function addDays(date: string, amount: number) {
 function dayOfWeek(date: string) {
   const day = new Date(`${date}T00:00:00.000Z`).getUTCDay();
   return day === 0 ? 7 : day;
+}
+
+function dateDifference(from: string, to: string) {
+  return Math.round((Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`)) / 86_400_000);
+}
+
+function positiveModulo(value: number, divisor: number) {
+  return ((value % divisor) + divisor) % divisor;
+}
+
+function crewLetter(value: string | null) {
+  return value?.match(/\bcrew\s*([abc])\b/i)?.[1]?.toUpperCase() as "A" | "B" | "C" | undefined;
 }
 
 function minutes(time: string) {
@@ -213,6 +229,7 @@ function profileRow(employeeId: number) {
     departmentCode: string | null;
     departmentName: string | null;
     workMode: "FIXED" | "ROSTER" | "NONE" | null;
+    rosterGroup: string | null;
     workdaysJson: string | null;
     weeklyTemplateIdsJson: string | null;
     autoWeekendOvertime: number | null;
@@ -232,6 +249,7 @@ function profileRow(employeeId: number) {
       department.code AS departmentCode,
       department.name AS departmentName,
       work_mode.mode AS workMode,
+      work_mode.roster_group AS rosterGroup,
       profile.workdays_json AS workdaysJson,
       profile.weekly_template_ids_json AS weeklyTemplateIdsJson,
       profile.auto_weekend_overtime AS autoWeekendOvertime,
@@ -283,9 +301,36 @@ function scheduleTemplateById(id: string) {
   return record ? { ...record, crossesMidnight: Number(record.crossesMidnight) } : null;
 }
 
+function scheduleTemplateByCode(code: string) {
+  const record = db.select({
+    id: scheduleTemplates.id,
+    code: scheduleTemplates.code,
+    name: scheduleTemplates.name,
+    startTime: scheduleTemplates.startTime,
+    endTime: scheduleTemplates.endTime,
+    graceMinutes: scheduleTemplates.graceMinutes,
+    crossesMidnight: scheduleTemplates.crossesMidnight
+  }).from(scheduleTemplates).where(eq(scheduleTemplates.code, code)).get();
+  return record ? { ...record, crossesMidnight: Number(record.crossesMidnight) } : null;
+}
+
+function automaticCrewSchedule(rosterGroup: string | null, date: string) {
+  const letter = crewLetter(rosterGroup);
+  if (!letter) return null;
+  const index = positiveModulo(dateDifference(CREW_PATTERN_REFERENCE_DATE, date) + CREW_PHASE_ON_REFERENCE_DATE[letter], CREW_PATTERN.length);
+  const shift = CREW_PATTERN[index]!;
+  return {
+    group: `Crew ${letter}`,
+    shift,
+    template: shift === "P" ? scheduleTemplateByCode("SHIFT_PAGI") : shift === "M" ? scheduleTemplateByCode("SHIFT_MALAM") : null
+  };
+}
+
 function scansFor(employeeId: number, date: string, crossesMidnight: boolean) {
   // A night shift ends the following morning.  Do not include the next
-  // evening's check-in as this employee's check-out for the previous shift.
+  // evening's check-in as this employee's check-out for the previous shift,
+  // or the previous shift's morning check-out as today's night check-in.
+  const from = crossesMidnight ? `${date} 12:00:00` : `${date} 00:00:00`;
   const until = crossesMidnight ? `${addDays(date, 1)} 12:00:00` : `${addDays(date, 1)} 00:00:00`;
   return sqlite.query<Scan, [number, string, string]>(`
     SELECT attendance.recorded_at AS recordedAt
@@ -297,7 +342,46 @@ function scansFor(employeeId: number, date: string, crossesMidnight: boolean) {
       AND attendance.recorded_at >= ?
       AND attendance.recorded_at < ?
     ORDER BY attendance.recorded_at ASC
-  `).all(employeeId, `${date} 00:00:00`, until);
+  `).all(employeeId, from, until);
+}
+
+function adjustedMinutesForSchedule(recordedAt: string, attendanceDate: string, crossesMidnight: boolean) {
+  const value = scanMinutes(recordedAt);
+  return crossesMidnight && recordedAt.slice(0, 10) !== attendanceDate ? value + 1440 : value;
+}
+
+function identifyScanPair(scans: Scan[], attendanceDate: string, template: Template | null) {
+  if (scans.length === 0) return { checkInAt: null, checkOutAt: null, interpretation: "NONE" as const };
+  if (!template) {
+    return {
+      checkInAt: scans[0]?.recordedAt ?? null,
+      checkOutAt: scans.length > 1 ? scans.at(-1)?.recordedAt ?? null : null,
+      interpretation: scans.length > 1 ? "PAIRED" as const : "UNKNOWN" as const
+    };
+  }
+
+  const start = minutes(template.startTime);
+  const end = minutes(template.endTime) + (template.crossesMidnight ? 1440 : 0);
+  const midpoint = start + (end - start) / 2;
+  const first = scans[0]!;
+  const last = scans.at(-1)!;
+  const firstMinutes = adjustedMinutesForSchedule(first.recordedAt, attendanceDate, Boolean(template.crossesMidnight));
+  const lastMinutes = adjustedMinutesForSchedule(last.recordedAt, attendanceDate, Boolean(template.crossesMidnight));
+
+  if (scans.length === 1) {
+    return firstMinutes <= midpoint
+      ? { checkInAt: first.recordedAt, checkOutAt: null, interpretation: "CHECK_IN_ONLY" as const }
+      : { checkInAt: null, checkOutAt: first.recordedAt, interpretation: "CHECK_OUT_ONLY" as const };
+  }
+
+  // Repeated scans a few minutes apart near the same side of the shift are
+  // one attendance event, not a valid in/out pair.
+  if (lastMinutes - firstMinutes < 60) {
+    if (lastMinutes <= midpoint) return { checkInAt: first.recordedAt, checkOutAt: null, interpretation: "CHECK_IN_ONLY" as const };
+    if (firstMinutes > midpoint) return { checkInAt: null, checkOutAt: last.recordedAt, interpretation: "CHECK_OUT_ONLY" as const };
+  }
+
+  return { checkInAt: first.recordedAt, checkOutAt: last.recordedAt, interpretation: "PAIRED" as const };
 }
 
 function evaluationRecord(employeeId: number, date: string) {
@@ -367,6 +451,10 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
   const isLeave = roster.some((entry) => entry.assignmentType === "LEAVE");
   const hasOnCall = roster.some((entry) => entry.assignmentType === "ON_CALL");
   const explicitOvertime = roster.some((entry) => entry.assignmentType === "OVERTIME");
+  const automaticRoster = !regular && !isOff && !isLeave && person.workMode === "ROSTER"
+    ? automaticCrewSchedule(person.rosterGroup, attendanceDate)
+    : null;
+  const isAutomaticRosterOff = automaticRoster?.shift === "OFF";
   const hasFixedProfile = person.templateId && person.startTime && person.endTime && person.templateCode && person.templateName;
   // Departments outside PIT Crew follow Steady Day by policy.  A stored work
   // mode is an explicit override: ROSTER and NONE must never be silently
@@ -382,13 +470,14 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
         graceMinutes: person.graceMinutes ?? 0, crossesMidnight: person.crossesMidnight ?? 0
       }
     : usesImplicitSteadyDay ? steadyDayTemplate() : null;
-  const regularTemplate: Template | null = regular?.templateId && regular.startTime && regular.endTime && regular.templateCode && regular.templateName
+  const explicitRegularTemplate: Template | null = regular?.templateId && regular.startTime && regular.endTime && regular.templateCode && regular.templateName
     ? {
         id: regular.templateId, code: regular.templateCode, name: regular.templateName,
         startTime: regular.startTime, endTime: regular.endTime,
         graceMinutes: regular.graceMinutes ?? 0, crossesMidnight: regular.crossesMidnight ?? 0
       }
     : null;
+  const regularTemplate = explicitRegularTemplate ?? automaticRoster?.template ?? null;
   const weeklyTemplateIds = parseWeeklyTemplateIds(person.weeklyTemplateIdsJson);
   const hasWeeklyTemplates = Object.keys(weeklyTemplateIds).length > 0;
   const profileTemplateForToday = weeklyTemplateIds[dayOfWeek(attendanceDate)]
@@ -400,8 +489,9 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
   const template = regularTemplate ?? (profileWorksToday ? profileTemplateForToday : null);
   const crossesMidnight = Boolean(template?.crossesMidnight);
   const scans = scansFor(employeeId, attendanceDate, crossesMidnight);
-  const checkInAt = scans[0]?.recordedAt ?? null;
-  const checkOutAt = scans.length > 1 ? scans.at(-1)?.recordedAt ?? null : null;
+  const scanPair = identifyScanPair(scans, attendanceDate, template);
+  const checkInAt = scanPair.checkInAt;
+  const checkOutAt = scanPair.checkOutAt;
   const lastScanAt = scans.at(-1)?.recordedAt ?? null;
   const notes: string[] = [];
   let autoStatus: AttendanceAutoStatus = "NO_SCHEDULE";
@@ -411,11 +501,11 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
   let scheduledStartAt: string | null = null;
   let scheduledEndAt: string | null = null;
 
-  if (usesImplicitSteadyDay) notes.push("Steady Day otomatis berdasarkan departemen");
-
-  if (isLeave || isOff) {
+  if (isLeave || isOff || isAutomaticRosterOff) {
     autoStatus = scans.length ? "NEEDS_REVIEW" : isLeave ? "LEAVE" : "OFF";
-    notes.push(scans.length ? "Ada scan pada hari cuti atau off" : isLeave ? "Cuti sesuai roster" : "Off sesuai roster");
+    notes.push(scans.length
+      ? "Ada scan pada hari cuti atau off"
+      : isLeave ? "Cuti sesuai roster" : isAutomaticRosterOff ? `Off otomatis ${automaticRoster.group}` : "Off sesuai roster");
   } else if (template) {
     const endDate = template.crossesMidnight ? addDays(attendanceDate, 1) : attendanceDate;
     scheduledStartAt = `${attendanceDate} ${template.startTime}:00`;
@@ -424,9 +514,13 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
     const scheduledEndMinutes = minutes(template.endTime) + (template.crossesMidnight ? 1440 : 0);
     const buffer = globalSettings.overtimeBufferMinutes;
 
-    if (!checkInAt) {
+    if (!checkInAt && checkOutAt) {
+      autoStatus = "NEEDS_REVIEW";
+      notes.push("Tidak absen masuk");
+      notes.push(`Scan ${checkOutAt.slice(11, 19)} dikenali sebagai absen pulang`);
+    } else if (!checkInAt) {
       autoStatus = dateHasEnded(attendanceDate, template.endTime, Boolean(template.crossesMidnight)) ? "ABSENT" : "PENDING";
-      notes.push(autoStatus === "ABSENT" ? "Tidak ada scan setelah jadwal selesai" : "Menunggu scan masuk");
+      notes.push(autoStatus === "ABSENT" ? "Tidak absen masuk dan pulang" : "Menunggu absen masuk");
     } else {
       const checkInMinutes = scanMinutes(checkInAt);
       const adjustedCheckInMinutes = template.crossesMidnight && checkInAt.slice(0, 10) !== attendanceDate ? checkInMinutes + 1440 : checkInMinutes;
@@ -444,7 +538,10 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
       if (earlyLeaveMinutes > 0) notes.push(`Pulang ${earlyLeaveMinutes} menit sebelum jadwal selesai`);
       if (!checkOutAt && dateHasEnded(attendanceDate, template.endTime, Boolean(template.crossesMidnight))) {
         autoStatus = explicitOvertime ? "OVERTIME" : "NEEDS_REVIEW";
-        notes.push("Hanya satu scan; waktu keluar belum ditemukan");
+        notes.unshift("Tidak absen pulang");
+        notes.push(`Scan ${checkInAt.slice(11, 19)} dikenali sebagai absen masuk`);
+      } else if (!checkOutAt) {
+        notes.push("Menunggu absen pulang");
       }
 
       if (explicitOvertime || (overtimeMinutes > 0 && checkOutAt)) {
@@ -453,6 +550,7 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
       } else if (hasOnCall) {
         notes.push("On-call sesuai roster");
       }
+      if (checkOutAt && notes.length === 0) notes.push("Absensi masuk dan pulang lengkap");
     }
   } else if (scans.length && fallbackTemplate && (person.autoWeekendOvertime ?? usesImplicitSteadyDay)) {
     autoStatus = scans.length > 1 ? (hasOnCall ? "ON_CALL" : "OVERTIME") : "NEEDS_REVIEW";
@@ -474,6 +572,9 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
   } else {
     notes.push("Belum ada roster atau profil kerja");
   }
+
+  if (usesImplicitSteadyDay) notes.push("Steady Day otomatis berdasarkan departemen");
+  if (automaticRoster) notes.push(`Pola ${automaticRoster.group} otomatis`);
 
   const autoRecord = {
     employeeId: person.employeeId,
