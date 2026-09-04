@@ -606,6 +606,68 @@ describe("authentication and master-data API", () => {
     expect(deleteResponse.status).toBe(403);
   });
 
+  test("serves a sanitized attendance display without requiring login", async () => {
+    const response = await app.handle(jsonRequest("/api/public/attendance-display", "GET"));
+    const payload = await response.json() as {
+      date: string;
+      timeZone: string;
+      summary: { totalScans: number; totalEmployees: number };
+      records: Array<{ eventType: string; departmentName: string | null }>;
+    };
+    const serialized = JSON.stringify(payload);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(payload.timeZone).toBe("Asia/Makassar");
+    expect(payload.summary.totalScans).toBeGreaterThanOrEqual(0);
+    expect(Array.isArray(payload.records)).toBe(true);
+    expect(payload.records.every((record) => ["IN", "OUT", "SCAN"].includes(record.eventType))).toBe(true);
+    expect(serialized).not.toContain("deviceSerial");
+    expect(serialized).not.toContain("employeeCode");
+    expect(serialized).not.toContain("rawLine");
+  });
+
+  test("labels public display scans as masuk and keluar from the evaluated work schedule", async () => {
+    const employeeResponse = await app.handle(jsonRequest("/api/employees", "POST", {
+      employeeCode: "PUBLIC-DISPLAY-001",
+      name: "Karyawan Layar Publik",
+      siteId: "site-default",
+      deviceMappings: [{ deviceSerial: "X105-PUBLIC-DISPLAY", deviceUserCode: "8801" }]
+    }, adminCookie));
+    const employee = await employeeResponse.json() as { id: number };
+    expect(employeeResponse.status).toBe(201);
+
+    const profileResponse = await app.handle(jsonRequest(`/api/schedule-profiles/${employee.id}`, "PUT", {
+      scheduleTemplateId: steadyDayTemplateId,
+      workdays: [1, 2, 3, 4, 5, 6, 7],
+      autoWeekendOvertime: true,
+      overtimeBufferMinutes: 15
+    }, adminCookie));
+    expect(profileResponse.status).toBe(200);
+
+    const date = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Makassar",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).format(new Date());
+    const uploadResponse = await app.handle(new Request("http://localhost/iclock/cdata?SN=X105-PUBLIC-DISPLAY&table=ATTLOG", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: `8801\t${date} 07:55:00\t0\t1\n8801\t${date} 17:05:00\t0\t1`
+    }));
+    expect(uploadResponse.status).toBe(200);
+
+    const displayResponse = await app.handle(jsonRequest("/api/public/attendance-display", "GET"));
+    const display = await displayResponse.json() as {
+      records: Array<{ employeeName: string; departmentName: string | null; eventType: string; note: string }>;
+    };
+    const employeeScans = display.records.filter((record) => record.employeeName === "Karyawan Layar Publik");
+    expect(employeeScans.map((record) => record.eventType)).toEqual(["OUT", "IN"]);
+    expect(employeeScans.map((record) => record.note)).toEqual(["Pulang sesuai jadwal", "Masuk tepat waktu"]);
+    expect(employeeScans.every((record) => Object.hasOwn(record, "departmentName"))).toBe(true);
+  });
+
   test("creates, lists, and approves leave requests while synchronizing roster", async () => {
     const listEmployeesResponse = await app.handle(jsonRequest("/api/employees", "GET", undefined, adminCookie));
     const employeePayload = await listEmployeesResponse.json() as { records: Array<{ id: number; employeeCode: string }> };

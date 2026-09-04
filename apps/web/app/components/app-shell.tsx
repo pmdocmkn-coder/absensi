@@ -88,9 +88,10 @@ function Brand() {
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
+  const isPublicPage = pathname === "/login" || pathname === "/layar-absensi";
 
   useEffect(() => {
-    if (pathname === "/login") return;
+    if (isPublicPage) return;
     const controller = new AbortController();
     void fetch(`${API_URL}/api/auth/me`, {
       credentials: "include",
@@ -108,9 +109,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       setUser(null);
     });
     return () => controller.abort();
-  }, [pathname]);
+  }, [isPublicPage]);
 
-  if (pathname === "/login") return <>{children}</>;
+  if (isPublicPage) return <>{children}</>;
 
   if (user === undefined) {
     return (

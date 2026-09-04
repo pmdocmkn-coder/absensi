@@ -581,7 +581,7 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
     autoStatus = scans.length ? "NEEDS_REVIEW" : isLeave ? "LEAVE" : "OFF";
     notes.push(scans.length
       ? "Ada scan pada hari cuti atau off"
-      : isLeave ? "Cuti sesuai roster" : isAutomaticRosterOff ? `Off otomatis ${automaticRoster.group}` : "Off sesuai roster");
+      : isLeave ? "Cuti sesuai roster" : isAutomaticRosterOff ? `Off otomatis ${automaticRoster?.group ?? "roster"}` : "Off sesuai roster");
   } else if (template) {
     const endDate = template.crossesMidnight ? addDays(attendanceDate, 1) : attendanceDate;
     scheduledStartAt = `${attendanceDate} ${template.startTime}:00`;

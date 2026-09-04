@@ -129,6 +129,63 @@ export function getAttendanceByRange(from: string, to: string, limit = 500) {
   `).all(from, to, Math.min(Math.max(limit, 1), 5000));
 }
 
+type PublicAttendanceRecord = {
+  employeeId: number;
+  employeeName: string;
+  departmentName: string | null;
+  siteName: string | null;
+  recordedAt: string;
+};
+
+type PublicAttendanceSummary = {
+  totalScans: number;
+  totalEmployees: number;
+};
+
+/**
+ * Read model for the shared attendance screen. It deliberately leaves out
+ * employee codes, device serials, log ids, and raw device payloads because
+ * this endpoint is available without a login.
+ */
+export function getPublicAttendanceDisplay(from: string, to: string, limit = 10) {
+  const records = sqlite.query<PublicAttendanceRecord, [string, string, number]>(`
+    SELECT
+      employee.id AS employeeId,
+      employee.name AS employeeName,
+      department.name AS departmentName,
+      site.name AS siteName,
+      attendance.recorded_at AS recordedAt
+    FROM attendance_logs AS attendance
+    INNER JOIN device_users AS device_user
+      ON device_user.device_serial = attendance.device_serial
+      AND device_user.device_user_code = attendance.employee_code
+    INNER JOIN employees AS employee
+      ON employee.id = device_user.employee_id
+      AND employee.is_active = 1
+    LEFT JOIN departments AS department ON department.id = employee.department_id
+    LEFT JOIN sites AS site ON site.id = employee.site_id
+    WHERE attendance.recorded_at >= ? AND attendance.recorded_at < ?
+    ORDER BY attendance.recorded_at DESC
+    LIMIT ?
+  `).all(from, to, Math.min(Math.max(limit, 1), 12));
+
+  const summary = sqlite.query<PublicAttendanceSummary, [string, string]>(`
+    SELECT
+      COUNT(*) AS totalScans,
+      COUNT(DISTINCT employee.id) AS totalEmployees
+    FROM attendance_logs AS attendance
+    INNER JOIN device_users AS device_user
+      ON device_user.device_serial = attendance.device_serial
+      AND device_user.device_user_code = attendance.employee_code
+    INNER JOIN employees AS employee
+      ON employee.id = device_user.employee_id
+      AND employee.is_active = 1
+    WHERE attendance.recorded_at >= ? AND attendance.recorded_at < ?
+  `).get(from, to) ?? { totalScans: 0, totalEmployees: 0 };
+
+  return { records, summary };
+}
+
 export function getAttendanceCountByRange(from: string, to: string) {
   return sqlite.query<{ count: number }, [string, string]>(`
     SELECT COUNT(*) AS count FROM attendance_logs
