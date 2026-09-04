@@ -12,6 +12,7 @@ import {
   getAnomalyBadge,
   getAvatarColor,
   getInitials,
+  isUnverifiedEmployee,
   shortTime,
   type DailyAttendance,
   witaDate
@@ -23,6 +24,8 @@ import { StatusBadge } from "../../components/status-badge";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
 type VerificationFilter = "NEEDS_REVIEW" | "ALL" | "OFF_LEAVE" | "NO_SCHEDULE" | "CONFIRMED";
+
+type Department = { id: string; code: string; name: string };
 
 function getPreviousDate(dateStr: string) {
   try {
@@ -37,17 +40,40 @@ function getPreviousDate(dateStr: string) {
 export default function AttendanceVerificationPage() {
   const [date, setDate] = useState(witaDate);
   const [records, setRecords] = useState<DailyAttendance[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [drafts, setDrafts] = useState<Record<number, string>>({});
   const [notes, setNotes] = useState<Record<number, string>>({});
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [batchNote, setBatchNote] = useState("");
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<VerificationFilter>("NEEDS_REVIEW");
+  const [activeTab, setActiveTab] = useState<"VERIFIED" | "UNVERIFIED">("VERIFIED");
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<number | null>(null);
   const [batchSaving, setBatchSaving] = useState(false);
   const [error, setError] = useState("");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // State untuk modal lengkapi identitas karyawan (jika nama hanya PIN)
+  const [editingEmployee, setEditingEmployee] = useState<{
+    employeeId: number;
+    employeeCode: string;
+    name: string;
+    departmentId: string;
+  } | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDeptId, setEditDeptId] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+
+  // Cek jika URL memiliki query parameter ?tab=unverified
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("tab") === "unverified") {
+        setActiveTab("UNVERIFIED");
+      }
+    }
+  }, []);
 
   const showToast = (message: string) => {
     setToastMessage(message);
@@ -59,14 +85,24 @@ export default function AttendanceVerificationPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/api/attendance/daily?from=${date}&to=${date}`, {
-        credentials: "include",
-        cache: "no-store"
-      });
-      const payload = (await response.json()) as { records?: DailyAttendance[]; error?: { message?: string } };
-      if (!response.ok) throw new Error(payload.error?.message ?? "Gagal memuat evaluasi absensi");
-      const nextRecords = payload.records ?? [];
+      const [attRes, deptRes] = await Promise.all([
+        fetch(`${API_URL}/api/attendance/daily?from=${date}&to=${date}`, {
+          credentials: "include",
+          cache: "no-store"
+        }),
+        fetch(`${API_URL}/api/departments`, {
+          credentials: "include",
+          cache: "no-store"
+        })
+      ]);
+
+      const attPayload = (await attRes.json()) as { records?: DailyAttendance[]; error?: { message?: string } };
+      const deptPayload = (await deptRes.json()) as { records?: Department[] };
+
+      if (!attRes.ok) throw new Error(attPayload.error?.message ?? "Gagal memuat evaluasi absensi");
+      const nextRecords = attPayload.records ?? [];
       setRecords(nextRecords);
+      setDepartments(deptPayload.records ?? []);
 
       // Preserve or initialize drafts & notes
       setDrafts((prev) => {
@@ -96,29 +132,46 @@ export default function AttendanceVerificationPage() {
     void load();
   }, [date]);
 
+  // Pisahkan records menjadi terdaftar vs belum terverifikasi (hanya PIN)
+  const { verifiedRecords, unverifiedRecords } = useMemo(() => {
+    const verified: DailyAttendance[] = [];
+    const unverified: DailyAttendance[] = [];
+    for (const r of records) {
+      if (isUnverifiedEmployee(r)) unverified.push(r);
+      else verified.push(r);
+    }
+    return { verifiedRecords: verified, unverifiedRecords: unverified };
+  }, [records]);
+
   // Metric counts for summary cards
   const metrics = useMemo(() => {
-    let needsReview = 0;
+    let verifiedNeedsReview = 0;
     let offScan = 0;
-    let noSchedule = 0;
     let confirmed = 0;
 
-    for (const r of records) {
+    for (const r of verifiedRecords) {
       const notesText = r.notes.join(" ").toLowerCase();
       const isReviewAnomaly = ["NEEDS_REVIEW", "NO_SCHEDULE"].includes(r.autoStatus);
-      if (isReviewAnomaly && r.confirmationState !== "CONFIRMED") needsReview++;
+      if (isReviewAnomaly && r.confirmationState !== "CONFIRMED") verifiedNeedsReview++;
       if (notesText.includes("cuti") || notesText.includes("off")) offScan++;
-      if (!r.scheduleCode || notesText.includes("tanpa jadwal") || r.autoStatus === "NO_SCHEDULE") noSchedule++;
       if (r.confirmationState === "CONFIRMED") confirmed++;
     }
 
-    return { needsReview, offScan, noSchedule, confirmed, total: records.length };
-  }, [records]);
+    return {
+      verifiedNeedsReview,
+      unverifiedCount: unverifiedRecords.length,
+      offScan,
+      confirmed,
+      totalVerified: verifiedRecords.length
+    };
+  }, [verifiedRecords, unverifiedRecords]);
 
-  // Filtered attendance rows
+  // Filtered rows untuk tab aktif
+  const currentBaseRecords = activeTab === "VERIFIED" ? verifiedRecords : unverifiedRecords;
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return records.filter((record) => {
+    return currentBaseRecords.filter((record) => {
       const matchSearch =
         !term ||
         `${record.employeeName} ${record.employeeCode} ${record.departmentName ?? ""} ${record.notes.join(" ")}`
@@ -126,6 +179,8 @@ export default function AttendanceVerificationPage() {
           .includes(term);
 
       if (!matchSearch) return false;
+
+      if (activeTab === "UNVERIFIED") return true;
 
       const notesText = record.notes.join(" ").toLowerCase();
       switch (filterCategory) {
@@ -142,7 +197,7 @@ export default function AttendanceVerificationPage() {
           return true;
       }
     });
-  }, [records, search, filterCategory]);
+  }, [currentBaseRecords, search, filterCategory, activeTab]);
 
   // Checkbox handlers
   const allFilteredSelected = filtered.length > 0 && filtered.every((r) => selectedIds.has(r.employeeId));
@@ -230,20 +285,71 @@ export default function AttendanceVerificationPage() {
     }
   };
 
+  // Buka modal untuk melengkapi nama karyawan
+  const openEditModal = (record: DailyAttendance) => {
+    setEditingEmployee({
+      employeeId: record.employeeId,
+      employeeCode: record.employeeCode,
+      name: "",
+      departmentId: ""
+    });
+    setEditName("");
+    setEditDeptId("");
+  };
+
+  // Simpan nama karyawan ke API
+  const saveEmployeeIdentity = async () => {
+    if (!editingEmployee) return;
+    const name = editName.trim();
+    if (!name) {
+      setError("Nama lengkap karyawan wajib diisi.");
+      return;
+    }
+
+    setEditSaving(true);
+    setError("");
+    try {
+      const response = await fetch(`${API_URL}/api/employees/${editingEmployee.employeeId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name,
+          departmentId: editDeptId || null
+        })
+      });
+      const payload = (await response.json()) as { error?: { message?: string } };
+      if (!response.ok) throw new Error(payload.error?.message ?? "Gagal menyimpan identitas karyawan");
+
+      showToast(`Identitas PIN ${editingEmployee.employeeCode} berhasil disahkan menjadi "${name}"!`);
+      setEditingEmployee(null);
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Gagal menyimpan identitas karyawan");
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   // Status options for CustomSelect
   const statusOptions = attendanceStatuses.map((s) => ({
     value: s,
     label: attendanceLabel(s)
   }));
 
+  const departmentOptions = [
+    { value: "", label: "Tanpa departemen" },
+    ...departments.map((d) => ({ value: d.id, label: `${d.code} | ${d.name}` }))
+  ];
+
   return (
     <>
       <PageHeader
         title="Verifikasi absensi"
-        description="Sistem menghitung status dari roster, profil kerja, dan scan X105. Admin menangani pengecualian serta mencatat alasan koreksi secara real-time."
+        description="Sistem menghitung status dari roster, profil kerja, dan scan X105. Admin menangani pengecualian serta memisahkan scan yang belum bernama agar mudah diverifikasi."
         action={
-          <StatusBadge tone={metrics.needsReview > 0 ? "pending" : "on-time"}>
-            {metrics.needsReview > 0 ? `${metrics.needsReview} perlu perhatian` : "Semua selesai"}
+          <StatusBadge tone={metrics.verifiedNeedsReview > 0 ? "pending" : "on-time"}>
+            {metrics.verifiedNeedsReview > 0 ? `${metrics.verifiedNeedsReview} perlu perhatian` : "Semua selesai"}
           </StatusBadge>
         }
       />
@@ -251,26 +357,33 @@ export default function AttendanceVerificationPage() {
       {/* 4 Neo-Industrial Metric Summary Cards */}
       <div className="verify-stat-grid" aria-label="Statistik antrean verifikasi">
         <div className="verify-stat-card card-verify-review">
-          <div className="stat-icon" aria-hidden="true">⏳</div>
+          <div className="stat-icon" aria-hidden="true">📋</div>
           <div className="stat-content">
-            <span className="stat-label">Antrean Perlu Ditinjau</span>
-            <strong className="stat-value">{metrics.needsReview}</strong>
+            <span className="stat-label">Antrean Karyawan Terdaftar</span>
+            <strong className="stat-value">{metrics.verifiedNeedsReview}</strong>
           </div>
         </div>
 
-        <div className="verify-stat-card card-verify-anomaly">
+        <div
+          className="verify-stat-card card-verify-anomaly"
+          style={{ cursor: "pointer" }}
+          onClick={() => setActiveTab("UNVERIFIED")}
+          title="Klik untuk membuka tab Scan Belum Teridentifikasi"
+        >
           <div className="stat-icon" aria-hidden="true">⚠️</div>
           <div className="stat-content">
-            <span className="stat-label">Scan Hari Off / Cuti</span>
-            <strong className="stat-value">{metrics.offScan}</strong>
+            <span className="stat-label">Scan Belum Teridentifikasi</span>
+            <strong className="stat-value" style={{ color: metrics.unverifiedCount > 0 ? "#c2410c" : undefined }}>
+              {metrics.unverifiedCount}
+            </strong>
           </div>
         </div>
 
         <div className="verify-stat-card card-verify-nosched">
-          <div className="stat-icon" aria-hidden="true">❓</div>
+          <div className="stat-icon" aria-hidden="true">🏖️</div>
           <div className="stat-content">
-            <span className="stat-label">Scan Tanpa Jadwal Kerja</span>
-            <strong className="stat-value">{metrics.noSchedule}</strong>
+            <span className="stat-label">Scan Hari Off / Cuti</span>
+            <strong className="stat-value">{metrics.offScan}</strong>
           </div>
         </div>
 
@@ -285,6 +398,35 @@ export default function AttendanceVerificationPage() {
 
       {/* Main Container Panel */}
       <section className="panel" style={{ padding: "20px 24px" }}>
+        {/* Tab Pemisah: Karyawan Terdaftar vs Scan Belum Teridentifikasi */}
+        <div className="verify-tabs" role="tablist">
+          <button
+            type="button"
+            className={`verify-tab-btn ${activeTab === "VERIFIED" ? "is-active" : ""}`}
+            onClick={() => setActiveTab("VERIFIED")}
+            role="tab"
+            aria-selected={activeTab === "VERIFIED"}
+          >
+            <span className="verify-tab-title">📋 Antrean Karyawan Terdaftar</span>
+            <span className="verify-tab-badge badge-primary">{metrics.verifiedNeedsReview}</span>
+          </button>
+
+          <button
+            type="button"
+            className={`verify-tab-btn ${activeTab === "UNVERIFIED" ? "is-active" : ""}`}
+            onClick={() => setActiveTab("UNVERIFIED")}
+            role="tab"
+            aria-selected={activeTab === "UNVERIFIED"}
+          >
+            <span className="verify-tab-title">⚠️ Scan Belum Teridentifikasi (Hanya PIN)</span>
+            {metrics.unverifiedCount > 0 ? (
+              <span className="verify-tab-badge badge-warning">{metrics.unverifiedCount}</span>
+            ) : (
+              <span className="verify-tab-badge badge-muted">0</span>
+            )}
+          </button>
+        </div>
+
         {/* Verification Toolbar */}
         <div className="verify-toolbar">
           <div className="verify-date-group">
@@ -334,21 +476,22 @@ export default function AttendanceVerificationPage() {
             ) : null}
           </div>
 
-          <div className="verify-toolbar-filter">
-            <CustomSelect
-              ariaLabel="Filter Kategori Verifikasi"
-              value={filterCategory}
-              options={[
-                { value: "NEEDS_REVIEW", label: `Perlu Ditinjau (${metrics.needsReview})` },
-                { value: "ALL", label: `Semua Data (${metrics.total})` },
-                { value: "OFF_LEAVE", label: `Scan Hari Off / Cuti (${metrics.offScan})` },
-                { value: "NO_SCHEDULE", label: `Scan Tanpa Jadwal (${metrics.noSchedule})` },
-                { value: "CONFIRMED", label: `Sudah Dikonfirmasi (${metrics.confirmed})` }
-              ]}
-              onChange={(val) => setFilterCategory(val as VerificationFilter)}
-              className="ref-toolbar-select"
-            />
-          </div>
+          {activeTab === "VERIFIED" ? (
+            <div className="verify-toolbar-filter">
+              <CustomSelect
+                ariaLabel="Filter Kategori Verifikasi"
+                value={filterCategory}
+                options={[
+                  { value: "NEEDS_REVIEW", label: `Perlu Ditinjau (${metrics.verifiedNeedsReview})` },
+                  { value: "ALL", label: `Semua Terdaftar (${metrics.totalVerified})` },
+                  { value: "OFF_LEAVE", label: `Scan Hari Off / Cuti (${metrics.offScan})` },
+                  { value: "CONFIRMED", label: `Sudah Dikonfirmasi (${metrics.confirmed})` }
+                ]}
+                onChange={(val) => setFilterCategory(val as VerificationFilter)}
+                className="ref-toolbar-select"
+              />
+            </div>
+          ) : null}
 
           <button
             type="button"
@@ -360,8 +503,8 @@ export default function AttendanceVerificationPage() {
           </button>
         </div>
 
-        {/* Floating Batch Action Bar */}
-        {selectedIds.size > 0 ? (
+        {/* Floating Batch Action Bar (Khusus Tab Terdaftar) */}
+        {activeTab === "VERIFIED" && selectedIds.size > 0 ? (
           <div className="verify-batch-bar" role="toolbar" aria-label="Aksi masal verifikasi">
             <div className="verify-batch-info">
               <span className="verify-batch-badge">{selectedIds.size} DIPILIH</span>
@@ -413,7 +556,7 @@ export default function AttendanceVerificationPage() {
 
         {error ? (
           <div className="notice notice-error" style={{ marginBottom: "16px" }}>
-            <strong>Gagal Menyimpan:</strong>
+            <strong>Perhatian:</strong>
             <span>{error}</span>
           </div>
         ) : null}
@@ -428,13 +571,21 @@ export default function AttendanceVerificationPage() {
 
         {!loading && filtered.length === 0 ? (
           <div className="feedback-state">
-            <strong>Tidak ada antrean verifikasi pada kriteria ini.</strong>
-            <p>Ubah kategori filter atau gunakan tanggal lain untuk melihat data absensi.</p>
+            <strong>
+              {activeTab === "UNVERIFIED"
+                ? "Bagus! Tidak ada scan yang belum teridentifikasi pada tanggal ini."
+                : "Tidak ada antrean verifikasi pada kriteria ini."}
+            </strong>
+            <p>
+              {activeTab === "UNVERIFIED"
+                ? "Semua data scan dari perangkat X105 telah cocok dengan karyawan terdaftar."
+                : "Ubah kategori filter atau gunakan tanggal lain untuk melihat data absensi."}
+            </p>
           </div>
         ) : null}
 
-        {/* Neo-Industrial Verification Table */}
-        {!loading && filtered.length > 0 ? (
+        {/* TAB 1: TABEL KARYAWAN TERDAFTAR */}
+        {!loading && filtered.length > 0 && activeTab === "VERIFIED" ? (
           <div className="ref-table-card">
             <div className="ref-table-wrap">
               <table className="ref-attendance-table">
@@ -493,7 +644,7 @@ export default function AttendanceVerificationPage() {
                             </div>
                             <div className="ref-employee-meta">
                               <strong className="ref-employee-name">{record.employeeName}</strong>
-                              <span className="ref-employee-nip">ID {record.employeeCode}</span>
+                              <span className="ref-employee-nip">NIP: {record.employeeCode}</span>
                               <span className="ref-dept-name" style={{ marginTop: "2px" }}>
                                 {record.departmentName ?? "Tanpa departemen"}
                               </span>
@@ -671,7 +822,200 @@ export default function AttendanceVerificationPage() {
             </div>
           </div>
         ) : null}
+
+        {/* TAB 2: TABEL SCAN BELUM TERIDENTIFIKASI (HANYA ID / PIN MESIN) */}
+        {!loading && filtered.length > 0 && activeTab === "UNVERIFIED" ? (
+          <div className="ref-table-card">
+            <div className="ref-table-wrap">
+              <table className="ref-attendance-table">
+                <thead>
+                  <tr>
+                    <th style={{ minWidth: "160px" }}>PIN / ID Mesin</th>
+                    <th style={{ minWidth: "250px" }}>Waktu Scan X105</th>
+                    <th style={{ minWidth: "260px" }}>Diagnosa Mesin</th>
+                    <th style={{ minWidth: "260px" }}>Tindakan Identifikasi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((record) => {
+                    const isSaving = savingId === record.employeeId;
+
+                    return (
+                      <tr key={`${record.employeeId}-${record.attendanceDate}`}>
+                        {/* PIN Mesin */}
+                        <td>
+                          <div className="unverified-card-raw">
+                            <span className="unverified-pin-badge">PIN {record.employeeCode}</span>
+                            <span className="unverified-tag">⚠️ BELUM ADA NAMA</span>
+                            <small style={{ color: "#64748b", fontSize: "11px" }}>
+                              Master data belum memiliki nama untuk PIN ini
+                            </small>
+                          </div>
+                        </td>
+
+                        {/* Waktu Scan */}
+                        <td>
+                          <div className="verify-schedule-cell">
+                            <div className="verify-times-row">
+                              {record.checkInAt ? (
+                                <div className="ref-time-box time-box-in" title={record.checkInAt}>
+                                  <span className="time-clock" aria-hidden="true">🟢</span>
+                                  <strong>{shortTime(record.checkInAt)}</strong>
+                                  <span className="time-tz">WITA</span>
+                                </div>
+                              ) : (
+                                <div className="ref-time-box time-box-empty">
+                                  <span className="time-empty-dash">—</span>
+                                  <span>Belum tap masuk</span>
+                                </div>
+                              )}
+
+                              {record.checkOutAt ? (
+                                <div className="ref-time-box time-box-out" title={record.checkOutAt}>
+                                  <span className="time-clock" aria-hidden="true">🔵</span>
+                                  <strong>{shortTime(record.checkOutAt)}</strong>
+                                  <span className="time-tz">WITA</span>
+                                </div>
+                              ) : (
+                                <div className="ref-time-box time-box-empty">
+                                  <span className="time-empty-dash">—</span>
+                                  <span>Belum tap keluar</span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="verify-scan-chip">
+                              <span aria-hidden="true">📡</span>
+                              <span>{record.scanCount} Scan X105 Terdeteksi</span>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Diagnosa */}
+                        <td>
+                          <div className="verify-system-cell">
+                            <div className="verify-anomaly-pill anomaly-pill-pending">
+                              <span>❓</span>
+                              <span>Scan Tanpa Nama & Profil</span>
+                            </div>
+                            <div className="verify-system-desc">
+                              <strong>{attendanceReason(record)}</strong>
+                              <span>{attendanceReasonDetails(record)}</span>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Tindakan Identifikasi */}
+                        <td>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                            <button
+                              type="button"
+                              className="verify-submit-btn"
+                              onClick={() => openEditModal(record)}
+                              title="Lengkapi identitas nama karyawan ini agar masuk ke daftar terdaftar"
+                            >
+                              <span>✏️ Lengkapi Nama Karyawan</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              className="verify-quick-chip"
+                              style={{ height: "30px", justifyContent: "center" }}
+                              onClick={() => void handleConfirm(record)}
+                              disabled={isSaving}
+                            >
+                              {isSaving ? "Menyimpan..." : "Konfirmasi Sebagai Off / Abaikan"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
       </section>
+
+      {/* Modal Dialog: Lengkapi Nama Karyawan */}
+      {editingEmployee ? (
+        <div
+          className="roster-modal-backdrop"
+          onClick={() => setEditingEmployee(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="roster-backup-modal-card"
+            style={{ maxWidth: "480px" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="roster-backup-modal-header">
+              <div>
+                <h2>Lengkapi Identitas Karyawan</h2>
+                <p>
+                  Menghubungkan <strong>PIN {editingEmployee.employeeCode}</strong> ke nama karyawan sebenarnya.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="roster-backup-modal-close"
+                onClick={() => setEditingEmployee(null)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="roster-backup-modal-body">
+              <div className="roster-backup-field">
+                <label htmlFor="edit-name-input">Nama Lengkap Karyawan</label>
+                <input
+                  id="edit-name-input"
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="Contoh: Budi Santoso, Jufri Rante..."
+                  autoFocus
+                />
+              </div>
+
+              <div className="roster-backup-field">
+                <label>Departemen</label>
+                <CustomSelect
+                  ariaLabel="Pilih Departemen"
+                  value={editDeptId}
+                  options={departmentOptions}
+                  onChange={setEditDeptId}
+                />
+              </div>
+
+              <div style={{ background: "#f8fafc", padding: "10px 14px", borderRadius: "6px", border: "1px solid #e2e8f0", fontSize: "12px", color: "#475569" }}>
+                💡 <em>Setelah identitas disimpan, karyawan ini akan <strong>otomatis terverifikasi</strong> dan langsung muncul di tabel absensi resmi.</em>
+              </div>
+            </div>
+
+            <div className="roster-backup-modal-footer">
+              <button
+                type="button"
+                className="roster-btn roster-btn-cancel"
+                onClick={() => setEditingEmployee(null)}
+                disabled={editSaving}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="roster-btn roster-btn-save"
+                onClick={() => void saveEmployeeIdentity()}
+                disabled={editSaving || !editName.trim()}
+              >
+                {editSaving ? "Menyimpan..." : "Simpan Identitas Karyawan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Floating Toast Notification */}
       {toastMessage ? (
@@ -683,4 +1027,5 @@ export default function AttendanceVerificationPage() {
     </>
   );
 }
+
 

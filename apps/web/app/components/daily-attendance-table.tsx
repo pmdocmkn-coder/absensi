@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   formatScheduleDisplay,
@@ -7,6 +8,7 @@ import {
   getAvatarColor,
   getInformativeNote,
   getInitials,
+  isUnverifiedEmployee,
   type DailyAttendance,
   witaDate
 } from "./attendance-display";
@@ -72,22 +74,32 @@ export function DailyAttendanceTable() {
     return () => { controller.abort(); window.clearInterval(timer); };
   }, [load]);
 
+  // Hanya ambil karyawan yang datanya lengkap/terverifikasi (punya nama resmi)
+  const verifiedRecords = useMemo(() => {
+    return records.filter((r) => !isUnverifiedEmployee(r));
+  }, [records]);
+
+  // Hitung berapa scan anonim/hanya PIN pada hari ini
+  const unverifiedScansCount = useMemo(() => {
+    return records.filter((r) => isUnverifiedEmployee(r) && r.scanCount > 0).length;
+  }, [records]);
+
   // List of unique departments for filter
   const departments = useMemo(() => {
     const set = new Set<string>();
-    for (const r of records) {
+    for (const r of verifiedRecords) {
       if (r.departmentName) set.add(r.departmentName);
     }
     return Array.from(set).sort();
-  }, [records]);
+  }, [verifiedRecords]);
 
   // Scope filter: ALL vs SCANNED
   const baseRecords = useMemo(() => {
     if (scope === "SCANNED") {
-      return records.filter((r) => r.scanCount > 0);
+      return verifiedRecords.filter((r) => r.scanCount > 0);
     }
-    return records;
-  }, [records, scope]);
+    return verifiedRecords;
+  }, [verifiedRecords, scope]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -102,15 +114,15 @@ export function DailyAttendanceTable() {
   }, [baseRecords, search, department, status]);
 
   const totals = useMemo(() => ({
-    allEmployees: records.length,
-    scanned: records.filter((record) => record.scanCount > 0).length,
-    present: records.filter((record) => ["PRESENT", "LATE", "OVERTIME", "ON_CALL"].includes(record.status)).length,
-    review: records.filter((record) => ["NEEDS_REVIEW", "NO_SCHEDULE"].includes(record.status)).length,
-    overtime: records.filter((record) => record.status === "OVERTIME").length,
-    leave: records.filter((record) => record.status === "LEAVE").length,
-    off: records.filter((record) => record.status === "OFF").length,
-    notYet: records.filter((record) => ["ABSENT", "PENDING"].includes(record.status)).length
-  }), [records]);
+    allEmployees: verifiedRecords.length,
+    scanned: verifiedRecords.filter((record) => record.scanCount > 0).length,
+    present: verifiedRecords.filter((record) => ["PRESENT", "LATE", "OVERTIME", "ON_CALL"].includes(record.status)).length,
+    review: verifiedRecords.filter((record) => ["NEEDS_REVIEW", "NO_SCHEDULE"].includes(record.status)).length,
+    overtime: verifiedRecords.filter((record) => record.status === "OVERTIME").length,
+    leave: verifiedRecords.filter((record) => record.status === "LEAVE").length,
+    off: verifiedRecords.filter((record) => record.status === "OFF").length,
+    notYet: verifiedRecords.filter((record) => ["ABSENT", "PENDING"].includes(record.status)).length
+  }), [verifiedRecords]);
 
   return <>
     <div className="attendance-summary" aria-label="Ringkasan absensi">
@@ -121,6 +133,18 @@ export function DailyAttendanceTable() {
       <div><span>Jadwal off</span><strong>{totals.off}</strong></div>
       <div><span>Belum hadir</span><strong>{totals.notYet}</strong></div>
     </div>
+
+    {unverifiedScansCount > 0 ? (
+      <div className="unverified-alert-banner" role="alert">
+        <span className="unverified-alert-icon" aria-hidden="true">⚠️</span>
+        <div className="unverified-alert-text">
+          <strong>Perhatian:</strong> Terdapat <strong>{unverifiedScansCount} scan</strong> dari perangkat X105 dengan PIN yang belum terhubung ke nama karyawan.
+        </div>
+        <Link href="/admin/kehadiran?tab=unverified" className="unverified-alert-btn">
+          Tinjau & Lengkapi di Verifikasi Absensi →
+        </Link>
+      </div>
+    ) : null}
 
     {/* Toolbar filter persis seperti referensi gambar */}
     <div className="ref-attendance-toolbar">

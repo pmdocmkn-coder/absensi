@@ -200,3 +200,18 @@ export function getAnomalyBadge(record: Pick<DailyAttendance, "autoStatus" | "no
   return null;
 }
 
+export function isUnverifiedEmployee(employee: {
+  employeeName?: string;
+  name?: string;
+  employeeCode: string;
+}): boolean {
+  const name = (employee.employeeName ?? employee.name ?? "").trim();
+  const code = employee.employeeCode.trim();
+  if (!name || name === code) return true;
+  if (/^\d+$/.test(name)) return true;
+  if (/^id\s*\d+$/i.test(name)) return true;
+  if (/^pin\s*\d+$/i.test(name)) return true;
+  return false;
+}
+
+

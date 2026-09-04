@@ -5,6 +5,7 @@ import { PageHeader } from "../../components/page-header";
 import { StatusBadge } from "../../components/status-badge";
 import { CustomSelect, type DropdownOption } from "../../components/custom-dropdown";
 import { EmployeeImport } from "../../components/employee-import";
+import { isUnverifiedEmployee } from "../../components/attendance-display";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 const KEEP_EXISTING = "__KEEP_EXISTING__";
@@ -17,8 +18,12 @@ const rosterGroupOptions: DropdownOption[] = [
   { value: "Crew C", label: "Crew C" }
 ];
 const completenessOptions: DropdownOption[] = [
-  { value: "ALL", label: "Semua karyawan" }, { value: "PROFILED", label: "Sudah ada profil" },
-  { value: "NO_PROFILE", label: "Belum ada profil" }, { value: "NO_DEPARTMENT", label: "Tanpa departemen" },
+  { value: "ALL", label: "Semua karyawan" },
+  { value: "UNVERIFIED", label: "⚠️ Belum terverifikasi (Hanya PIN)" },
+  { value: "VERIFIED", label: "✅ Sudah terverifikasi (Nama lengkap)" },
+  { value: "PROFILED", label: "Sudah ada profil" },
+  { value: "NO_PROFILE", label: "Belum ada profil" },
+  { value: "NO_DEPARTMENT", label: "Tanpa departemen" },
   { value: "NO_MAPPING", label: "Tanpa mapping X105" }
 ];
 
@@ -44,6 +49,7 @@ export default function EmployeesPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [checkedIds, setCheckedIds] = useState<number[]>([]);
   const [bulkTargetIds, setBulkTargetIds] = useState<number[]>([]);
+  const [employeeName, setEmployeeName] = useState("");
   const [templateId, setTemplateId] = useState("");
   const [workdays, setWorkdays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [weeklyTemplateIds, setWeeklyTemplateIds] = useState<Record<number, string>>({});
@@ -123,6 +129,7 @@ export default function EmployeesPage() {
     const savedMode = workModes[employee.id];
     setSelectedId(employee.id);
     setBulkTargetIds([]);
+    setEmployeeName(employee.name);
     setTemplateId(profile?.scheduleTemplateId ?? "");
     setWorkdays(profile?.workdays ?? [1, 2, 3, 4, 5]);
     setWeeklyTemplateIds(profileWeek(profile, profile?.scheduleTemplateId ?? ""));
@@ -144,6 +151,7 @@ export default function EmployeesPage() {
     const inferredMode = firstMode?.mode ?? (firstProfile ? "FIXED" : "NONE");
     setSelectedId(null);
     setBulkTargetIds(targets.map((employee) => employee.id));
+    setEmployeeName("");
     setTemplateId(firstProfile?.scheduleTemplateId ?? "");
     setWorkdays(firstProfile?.workdays ?? [1, 2, 3, 4, 5]);
     setWeeklyTemplateIds(profileWeek(firstProfile, firstProfile?.scheduleTemplateId ?? ""));
@@ -180,10 +188,29 @@ export default function EmployeesPage() {
 
   const saveWorkSetup = async () => {
     if (!profileTargetIds.length) return;
+    if (!isBulkProfile && selectedEmployee) {
+      const trimmedName = employeeName.trim();
+      if (!trimmedName) {
+        setError("Nama karyawan wajib diisi.");
+        return;
+      }
+    }
     if (workMode === "FIXED" && (!templateId || workdays.length === 0 || workdays.some((day) => !weeklyTemplateIds[day]))) { setError("Untuk jadwal tetap, pilih template untuk setiap hari kerja."); return; }
     if (workMode === "ROSTER" && !rosterGroup.trim()) { setError("Isi kelompok roster, misalnya Crew A, Crew B, atau Crew C."); return; }
     setSaving(true);
     try {
+      // Jika edit karyawan tunggal dan nama diubah, simpan nama via PATCH /api/employees/:id
+      if (!isBulkProfile && selectedEmployee && employeeName.trim() !== selectedEmployee.name) {
+        const nameRes = await fetch(`${API_URL}/api/employees/${selectedEmployee.id}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: employeeName.trim() })
+        });
+        const namePayload = (await nameRes.json()) as { error?: { message?: string } };
+        if (!nameRes.ok) throw new Error(namePayload.error?.message ?? "Gagal memperbarui nama karyawan");
+      }
+
       const response = await fetch(`${API_URL}/api/employee-work-modes/bulk/setup`, {
         method: "PUT", credentials: "include", headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -208,7 +235,7 @@ export default function EmployeesPage() {
         setCheckedIds([]);
         setBulkTargetIds([]);
         setSuccess(`${payload.total ?? profileTargetIds.length} profil karyawan berhasil diperbarui.`);
-      } else if (selectedEmployee) setSuccess(`Data organisasi dan pola kerja ${selectedEmployee.name} berhasil diperbarui.`);
+      } else if (selectedEmployee) setSuccess(`Data identitas, organisasi, dan pola kerja ${employeeName.trim() || selectedEmployee.name} berhasil diperbarui.`);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Gagal menyimpan seluruh perubahan"); }
     finally { setSaving(false); }
   };
@@ -216,12 +243,20 @@ export default function EmployeesPage() {
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return records.filter((employee) => {
+      const isUnverified = isUnverifiedEmployee(employee);
       const matchesTerm = !term || `${employee.name} ${employee.employeeCode} ${employee.departmentName ?? ""} ${employee.deviceMappings.map((item) => item.deviceUserCode).join(" ")}`.toLowerCase().includes(term);
-      const matchesFilter = filter === "ALL" || (filter === "PROFILED" && profiles[employee.id]) || (filter === "NO_PROFILE" && !profiles[employee.id]) || (filter === "NO_DEPARTMENT" && !employee.departmentName) || (filter === "NO_MAPPING" && employee.deviceMappings.length === 0);
+      const matchesFilter = filter === "ALL"
+        || (filter === "UNVERIFIED" && isUnverified)
+        || (filter === "VERIFIED" && !isUnverified)
+        || (filter === "PROFILED" && profiles[employee.id])
+        || (filter === "NO_PROFILE" && !profiles[employee.id])
+        || (filter === "NO_DEPARTMENT" && !employee.departmentName)
+        || (filter === "NO_MAPPING" && employee.deviceMappings.length === 0);
       return matchesTerm && matchesFilter;
     });
   }, [records, profiles, search, filter]);
 
+  const unverifiedCount = records.filter(isUnverifiedEmployee).length;
   const missingDepartment = records.filter((employee) => !employee.departmentName).length;
   const missingMapping = records.filter((employee) => employee.deviceMappings.length === 0).length;
   const deviceSerials = [...new Set(records.flatMap((employee) => employee.deviceMappings.map((mapping) => mapping.deviceSerial)))];
@@ -236,6 +271,7 @@ export default function EmployeesPage() {
     <PageHeader title="Data karyawan" description="Kelola identitas, mapping PIN X105, dan profil jadwal otomatis dari satu direktori." />
     <div className="attendance-summary employee-summary">
       <div><span>Karyawan aktif</span><strong>{records.filter((employee) => employee.isActive).length}</strong></div>
+      <div><span>Hanya PIN (Perlu nama)</span><strong style={{ color: unverifiedCount > 0 ? "#b45309" : undefined }}>{unverifiedCount}</strong></div>
       <div><span>Jadwal tetap</span><strong>{Object.values(workModes).filter((item) => item.mode === "FIXED").length || Object.keys(profiles).length}</strong></div>
       <div><span>Tanpa departemen</span><strong>{missingDepartment}</strong></div>
       <div><span>Tanpa mapping X105</span><strong>{missingMapping}</strong></div>
@@ -243,15 +279,30 @@ export default function EmployeesPage() {
     {error ? <div className="notice notice-error"><strong>Perlu diperiksa</strong><span>{error}</span></div> : null}
     {success ? <div className="notice notice-success"><strong>Perubahan tersimpan</strong><span>{success}</span></div> : null}
     {selectedEmployee || isBulkProfile ? <section className="panel employee-config-panel">
-      <div className="panel-heading"><div><h2>{isBulkProfile ? `Atur profil ${profileTargetIds.length} karyawan` : `Atur pola kerja: ${selectedEmployee!.name}`}</h2><p>{isBulkProfile ? "Satu pengaturan akan diterapkan ke seluruh karyawan yang dipilih." : <><code>{selectedEmployee!.employeeCode}</code> Pilih satu pola; roster harian selalu menjadi prioritas di atas jadwal tetap.</>}</p></div><button className="secondary-button" type="button" onClick={() => { setSelectedId(null); setBulkTargetIds([]); }}>TUTUP</button></div>
+      <div className="panel-heading"><div><h2>{isBulkProfile ? `Atur profil ${profileTargetIds.length} karyawan` : `Atur profil: ${employeeName || selectedEmployee!.name}`}</h2><p>{isBulkProfile ? "Satu pengaturan akan diterapkan ke seluruh karyawan yang dipilih." : <><code>{selectedEmployee!.employeeCode}</code> Pastikan nama asli dan departemen terisi agar otomatis terverifikasi di absensi.</>}</p></div><button className="secondary-button" type="button" onClick={() => { setSelectedId(null); setBulkTargetIds([]); }}>TUTUP</button></div>
       <div className="employee-config-grid">
         <div className="employee-config-section">
-          <h3>Data organisasi</h3>
+          <h3>Data identitas & organisasi</h3>
           <div className="employee-config-fields">
+            {!isBulkProfile && (
+              <div className="form-field" style={{ gridColumn: "1 / -1" }}>
+                <span>Nama Lengkap Karyawan</span>
+                <input
+                  value={employeeName}
+                  onChange={(event) => setEmployeeName(event.target.value)}
+                  placeholder="Nama lengkap resmi karyawan"
+                />
+                {selectedEmployee && isUnverifiedEmployee(selectedEmployee) ? (
+                  <small style={{ color: "#b45309", marginTop: "0.25rem", display: "block", fontWeight: 700 }}>
+                    ⚠️ Nama saat ini berupa angka PIN ({selectedEmployee.name}) hasil scan mesin X105. Isi nama asli agar karyawan otomatis terverifikasi.
+                  </small>
+                ) : null}
+              </div>
+            )}
             <div className="form-field"><span>Departemen</span><CustomSelect ariaLabel="Pilih departemen" value={departmentId} options={isBulkProfile ? bulkDepartmentOptions : departmentOptions} onChange={setDepartmentId} /></div>
             <div className="form-field"><span>Akses aplikasi</span><CustomSelect ariaLabel="Pilih akses aplikasi" value={role} options={isBulkProfile ? bulkRoleOptions : roleOptions} onChange={setRole} /></div>
           </div>
-          <p className="employee-bulk-org-help">{isBulkProfile ? <>Pilih <b>Tidak diubah</b> untuk mempertahankan data setiap karyawan.</> : <>Departemen dan akses akan disimpan bersama pola kerja.</>}</p>
+          <p className="employee-bulk-org-help">{isBulkProfile ? <>Pilih <b>Tidak diubah</b> untuk mempertahankan data setiap karyawan.</> : <>Nama, departemen, dan akses akan disimpan bersama pola kerja.</>}</p>
           {!isBulkProfile ? <div className="department-quick-add">
             <strong>Departemen belum ada?</strong>
             <input value={newDepartmentCode} onChange={(event) => setNewDepartmentCode(event.target.value.toUpperCase())} placeholder="Kode, mis. OPS" maxLength={20} />
@@ -303,13 +354,25 @@ export default function EmployeesPage() {
       {!loading && filtered.length > 0 ? <div className="table-wrap employee-table-wrap"><table className="employee-table"><thead><tr><th><label className="employee-select-heading"><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisible} /><span>Karyawan</span></label></th><th>Organisasi</th><th>Mapping X105</th><th>Profil kerja</th><th>Akses</th><th>Tindakan</th></tr></thead><tbody>{filtered.map((employee) => {
         const profile = profiles[employee.id];
         const mode = workModes[employee.id]?.mode ?? (profile ? "FIXED" : "NONE");
+        const isUnverified = isUnverifiedEmployee(employee);
         return <tr className={checkedIds.includes(employee.id) ? "is-selected" : ""} key={employee.id}>
-          <td><label className="employee-select-cell"><input type="checkbox" checked={checkedIds.includes(employee.id)} onChange={() => toggleEmployee(employee.id)} /><span><strong className="table-primary">{employee.name}</strong><small className="table-secondary">ID {employee.employeeCode}{employee.email ? ` · ${employee.email}` : ""}</small></span></label></td>
+          <td>
+            <label className="employee-select-cell">
+              <input type="checkbox" checked={checkedIds.includes(employee.id)} onChange={() => toggleEmployee(employee.id)} />
+              <span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                  <strong className="table-primary">{employee.name}</strong>
+                  {isUnverified ? <span className="unverified-tag" style={{ fontSize: "0.68rem" }}>⚠️ HANYA PIN</span> : null}
+                </span>
+                <small className="table-secondary">ID {employee.employeeCode}{employee.email ? ` · ${employee.email}` : ""}</small>
+              </span>
+            </label>
+          </td>
           <td><strong>{employee.departmentName ?? "Belum dipetakan"}</strong><small className="table-secondary">{employee.siteName ?? "Site Sangatta"}</small></td>
           <td>{employee.deviceMappings.length ? employee.deviceMappings.map((mapping) => <span className="device-mapping" key={`${mapping.deviceSerial}-${mapping.deviceUserCode}`}><code>PIN {mapping.deviceUserCode}</code><small>{mapping.deviceSerial}</small></span>) : <StatusBadge tone="danger">BELUM TERHUBUNG</StatusBadge>}</td>
           <td>{mode === "FIXED" && profile ? <><StatusBadge tone="on-time">{profile.scheduleTemplateCode}</StatusBadge><small className="table-secondary">Jadwal tetap · {profile.workdays.map((day) => weekdays.find((item) => item.value === day)?.label).join(", ")}</small></> : mode === "ROSTER" ? <><StatusBadge tone="on-call">SHIFT ROSTER</StatusBadge><small className="table-secondary">{workModes[employee.id]?.rosterGroup} · atur P/M/OFF di kalender</small></> : <StatusBadge tone="pending">BELUM DIJADWALKAN</StatusBadge>}</td>
           <td><code>{employee.role}</code><small className="table-secondary">{employee.isActive ? "Aktif" : "Nonaktif"}</small></td>
-          <td><button className="secondary-button compact-button" type="button" onClick={() => openProfile(employee)}>ATUR PROFIL</button></td>
+          <td><button className="secondary-button compact-button" type="button" onClick={() => openProfile(employee)}>{isUnverified ? "LENGKAPI NAMA" : "ATUR PROFIL"}</button></td>
         </tr>;
       })}</tbody></table></div> : null}
     </section>

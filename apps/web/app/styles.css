@@ -2783,6 +2783,170 @@ tbody tr:hover td {
   to { opacity: 1; transform: translateX(0); }
 }
 
+/* Banner Peringatan Scan Tanpa Nama pada /absensi */
+.unverified-alert-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  margin-bottom: 16px;
+  background: #fffbeb;
+  border: 2px solid #0f172a;
+  border-left: 6px solid #d97706;
+  border-radius: 8px;
+  box-shadow: 3px 3px 0 #0f172a;
+  font-size: 13px;
+  color: #78350f;
+  flex-wrap: wrap;
+}
+
+.unverified-alert-icon {
+  font-size: 18px;
+}
+
+.unverified-alert-text {
+  flex: 1 1 300px;
+  line-height: 1.4;
+}
+
+.unverified-alert-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: #d97706;
+  color: #ffffff;
+  border: 1.5px solid #0f172a;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+  box-shadow: 2px 2px 0 #0f172a;
+  transition: all 0.1s ease;
+}
+
+.unverified-alert-btn:hover {
+  background: #b45309;
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 #0f172a;
+}
+
+/* Tabs Pemisah di Halaman Verifikasi Absensi */
+.verify-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #0f172a;
+  padding-bottom: 0;
+  overflow-x: auto;
+}
+
+.verify-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  background: #ffffff;
+  color: #475569;
+  border: 2px solid #0f172a;
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  font-size: 13.5px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+  bottom: -2px;
+}
+
+.verify-tab-btn:hover {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.verify-tab-btn.is-active {
+  background: #facc15;
+  color: #0f172a;
+  border-bottom: 2px solid #facc15;
+  box-shadow: 0 -2px 0 #0f172a;
+}
+
+.verify-tab-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.verify-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  border: 1.5px solid #0f172a;
+}
+
+.verify-tab-badge.badge-primary {
+  background: #0f172a;
+  color: #ffffff;
+}
+
+.verify-tab-badge.badge-warning {
+  background: #ef4444;
+  color: #ffffff;
+  animation: pulseBadge 2s infinite;
+}
+
+@keyframes pulseBadge {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+.verify-tab-badge.badge-muted {
+  background: #e2e8f0;
+  color: #64748b;
+}
+
+/* Badge penanda di Data Karyawan */
+.unverified-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #fef08a;
+  color: #854d0e;
+  border: 1.5px solid #ca8a04;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  margin-top: 3px;
+  width: fit-content;
+}
+
+/* Card Khusus Scan Belum Teridentifikasi */
+.unverified-card-raw {
+  background: #fefce8;
+  border: 2px solid #ca8a04;
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.unverified-pin-badge {
+  font-family: Consolas, monospace;
+  font-size: 14px;
+  font-weight: 900;
+  color: #854d0e;
+}
+
 .auth-loading {
   display: grid;
   min-height: 100dvh;
