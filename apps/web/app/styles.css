@@ -722,7 +722,7 @@ code {
   justify-content: space-between;
   padding: 0 30px;
   border-bottom: 2px solid var(--ink);
-  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  background: var(--surface);
 }
 
 .topbar-context,
@@ -2274,18 +2274,513 @@ tbody tr:hover td {
   .import-modal-footer > div { display: grid; grid-template-columns: 1fr 1fr; }
 }
 
-.verification-toolbar { grid-template-columns: minmax(170px, .35fr) minmax(280px, 1fr) auto; }
-.verification-table-wrap { max-height: 70dvh !important; }
-.verification-table { min-width: 1120px; }
-.verification-action { display: grid; min-width: 250px; gap: 7px; white-space: normal; }
-.verification-action select,
-.verification-action input {
+/* ==========================================================================
+   VERIFIKASI ABSENSI (ADMIN / KEHADIRAN) - NEO-INDUSTRIAL STYLES
+   ========================================================================== */
+
+/* Grid Kartu Metrik Ringkasan Verifikasi */
+.verify-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.verify-stat-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  background: #ffffff;
+  border: 2px solid #0f172a;
+  border-radius: 10px;
+  box-shadow: 3px 3px 0 #0f172a;
+  transition: transform 0.1s ease;
+}
+
+.verify-stat-card .stat-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.card-verify-review .stat-icon {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1.5px solid #fde68a;
+}
+
+.card-verify-anomaly .stat-icon {
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1.5px solid #fed7aa;
+}
+
+.card-verify-nosched .stat-icon {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1.5px solid #cbd5e1;
+}
+
+.card-verify-confirmed .stat-icon {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1.5px solid #a7f3d0;
+}
+
+.verify-stat-card .stat-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.verify-stat-card .stat-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.verify-stat-card .stat-value {
+  font-size: 24px;
+  font-weight: 900;
+  color: #0f172a;
+  line-height: 1.1;
+}
+
+/* Toolbar Verifikasi */
+.verify-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.verify-date-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.verify-date-input {
+  height: 42px;
+  padding: 0 12px;
+  background: #ffffff;
+  border: 2px solid #0f172a;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  box-shadow: 2px 2px 0 #0f172a;
+}
+
+.verify-quick-date-btn {
+  height: 42px;
+  padding: 0 12px;
+  background: #f1f5f9;
+  border: 2px solid #0f172a;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 #0f172a;
+  transition: all 0.1s ease;
+}
+
+.verify-quick-date-btn:hover {
+  background: #e2e8f0;
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 #0f172a;
+}
+
+.verify-search-box {
+  flex: 1 1 260px;
+  max-width: 420px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 12px;
+  background: #ffffff;
+  border: 2px solid #0f172a;
+  border-radius: 8px;
+  box-shadow: 2px 2px 0 #0f172a;
+}
+
+.verify-search-input {
   width: 100%;
-  min-height: 36px;
-  padding: 6px 8px;
-  border: 2px solid var(--ink);
-  border-radius: var(--radius);
-  background: var(--surface);
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.verify-toolbar-filter {
+  min-width: 220px;
+}
+
+/* Batch Action Floating Bar */
+.verify-batch-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  margin-bottom: 16px;
+  background: #0f172a;
+  color: #ffffff;
+  border: 2px solid #0f172a;
+  border-radius: 10px;
+  box-shadow: 4px 4px 0 #facc15;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.verify-batch-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.verify-batch-badge {
+  background: #facc15;
+  color: #0f172a;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.verify-batch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.verify-batch-btn {
+  height: 34px;
+  padding: 0 12px;
+  font-size: 11.5px;
+  font-weight: 800;
+  border-radius: 6px;
+  border: 1.5px solid #ffffff;
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.btn-batch-present {
+  background: #059669;
+  color: #ffffff;
+}
+
+.btn-batch-off {
+  background: #475569;
+  color: #ffffff;
+}
+
+.btn-batch-oncall {
+  background: #d97706;
+  color: #ffffff;
+}
+
+.btn-batch-cancel {
+  background: transparent;
+  color: #94a3b8;
+  border-color: #475569;
+}
+
+.verify-batch-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+}
+
+.verify-batch-note-input {
+  height: 34px;
+  padding: 0 10px;
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 12px;
+  min-width: 200px;
+}
+
+/* Tabel Verifikasi Kolom & Sel */
+.verify-th-check,
+.verify-td-check {
+  width: 44px;
+  text-align: center;
+}
+
+.verify-checkbox {
+  width: 17px;
+  height: 17px;
+  accent-color: #0f172a;
+  cursor: pointer;
+}
+
+/* Kolom Jadwal & Scan */
+.verify-schedule-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.verify-times-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.verify-scan-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+  background: #f1f5f9;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid #cbd5e1;
+  width: fit-content;
+}
+
+/* Kolom Hasil & Diagnosa Sistem */
+.verify-system-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 320px;
+}
+
+.verify-anomaly-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 800;
+  border: 1.5px solid #0f172a;
+  width: fit-content;
+}
+
+.anomaly-pill-off {
+  background: #fed7aa;
+  color: #7c2d12;
+}
+
+.anomaly-pill-pending {
+  background: #fef08a;
+  color: #713f12;
+}
+
+.anomaly-pill-late {
+  background: #fed7aa;
+  color: #9a3412;
+}
+
+.anomaly-pill-danger {
+  background: #fecaca;
+  color: #991b1b;
+}
+
+.verify-system-desc {
+  font-size: 11.5px;
+  color: #475569;
+  line-height: 1.35;
+}
+
+.verify-system-desc strong {
+  display: block;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+/* Kolom Keputusan Admin */
+.verify-decision-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 270px;
+  max-width: 320px;
+}
+
+.verify-status-select-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.verify-status-select-wrap .roster-single-select summary {
+  background: #ffffff;
+  border: 2px solid #0f172a;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  font-weight: 800;
+  box-shadow: 2px 2px 0 #0f172a;
+}
+
+.verify-status-select-wrap .roster-single-select-menu {
+  z-index: 50;
+  max-height: 250px;
+  overflow-y: auto;
+  background: #ffffff;
+  border: 2px solid #0f172a;
+  box-shadow: 4px 4px 0 #0f172a;
+  border-radius: 8px;
+  padding: 6px;
+}
+
+/* Quick Action Chips */
+.verify-quick-chips {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.verify-quick-chip {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 10.5px;
+  font-weight: 800;
+  border: 1px solid #0f172a;
+  border-radius: 4px;
+  background: #f8fafc;
+  color: #0f172a;
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.verify-quick-chip:hover {
+  background: #facc15;
+  transform: translateY(-1px);
+}
+
+.verify-quick-chip.is-active {
+  background: #0f172a;
+  color: #ffffff;
+  border-color: #0f172a;
+}
+
+/* Correction Note Input & Submit Button */
+.verify-note-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  background: #ffffff;
+  border: 1.5px solid #94a3b8;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #0f172a;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.verify-note-input:focus {
+  border-color: #0f172a;
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.1);
+}
+
+.verify-submit-btn {
+  height: 34px;
+  padding: 0 14px;
+  background: #facc15;
+  color: #0f172a;
+  border: 2px solid #0f172a;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 #0f172a;
+  transition: all 0.1s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.verify-submit-btn:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 #0f172a;
+  background: #eab308;
+}
+
+.verify-submit-btn:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 #0f172a;
+}
+
+.verify-submit-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.verify-submit-btn.btn-update {
+  background: #ffffff;
+}
+
+/* Stempel Audit Admin */
+.verify-audit-stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #047857;
+  background: #ecfdf5;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid #a7f3d0;
+  width: fit-content;
+}
+
+.verify-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 100;
+  background: #0f172a;
+  color: #ffffff;
+  padding: 12px 18px;
+  border-radius: 8px;
+  border: 2px solid #facc15;
+  box-shadow: 4px 4px 0 #0f172a;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  animation: slideInRight 0.2s ease;
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
 .auth-loading {

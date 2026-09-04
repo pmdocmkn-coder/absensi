@@ -3,6 +3,7 @@ import { requireAuth, requirePermission } from "../auth";
 import { ValidationError } from "../errors";
 import {
   bulkUpsertEmployeeWorkSetup,
+  confirmBatchDailyAttendance,
   confirmDailyAttendance,
   deleteScheduleProfile,
   getAttendanceSettings,
@@ -146,4 +147,21 @@ export const attendanceRulesRoutes = new Elysia({ prefix: "/api" })
       status: confirmedStatusSchema,
       note: t.Optional(t.Nullable(t.String({ maxLength: 1000 })))
     })
+  })
+  .post("/attendance/daily/batch-confirm", ({ request, body }) => {
+    const auth = requirePermission(request, "MANAGE_MASTER_DATA");
+    return confirmBatchDailyAttendance({
+      items: body.items,
+      confirmedByEmployeeId: auth.employeeId
+    });
+  }, {
+    body: t.Object({
+      items: t.Array(t.Object({
+        employeeId: t.Integer({ minimum: 1 }),
+        attendanceDate: t.String({ minLength: 10, maxLength: 10 }),
+        status: confirmedStatusSchema,
+        note: t.Optional(t.Nullable(t.String({ maxLength: 1000 })))
+      }), { minItems: 1, maxItems: 100 })
+    })
   });
+

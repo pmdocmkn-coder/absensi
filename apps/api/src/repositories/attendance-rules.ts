@@ -82,6 +82,9 @@ export type DailyAttendance = {
   hasOnCall: boolean;
   notes: string[];
   confirmationNote: string | null;
+  confirmedAt: string | null;
+  confirmedByName: string | null;
+  confirmedByEmployeeId: number | null;
 };
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -388,14 +391,22 @@ function evaluationRecord(employeeId: number, date: string) {
   return sqlite.query<{
     confirmedStatus: AttendanceConfirmedStatus | null;
     confirmationNote: string | null;
+    confirmedByEmployeeId: number | null;
+    confirmedAt: string | null;
+    confirmedByName: string | null;
   }, [number, string]>(`
-    SELECT confirmed_status AS confirmedStatus, confirmation_note AS confirmationNote
-    FROM attendance_evaluations
-    WHERE employee_id = ? AND attendance_date = ?
+    SELECT ae.confirmed_status AS confirmedStatus,
+           ae.confirmation_note AS confirmationNote,
+           ae.confirmed_by_employee_id AS confirmedByEmployeeId,
+           ae.confirmed_at AS confirmedAt,
+           e.name AS confirmedByName
+    FROM attendance_evaluations ae
+    LEFT JOIN employees e ON ae.confirmed_by_employee_id = e.id
+    WHERE ae.employee_id = ? AND ae.attendance_date = ?
   `).get(employeeId, date) ?? null;
 }
 
-function persistAutoEvaluation(record: Omit<DailyAttendance, "status" | "confirmationState" | "confirmationNote">) {
+function persistAutoEvaluation(record: Omit<DailyAttendance, "status" | "confirmationState" | "confirmationNote" | "confirmedAt" | "confirmedByName" | "confirmedByEmployeeId">) {
   sqlite.prepare(`
     INSERT INTO attendance_evaluations (
       employee_id, attendance_date, auto_status, check_in_at, check_out_at,
@@ -603,7 +614,10 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
     ...autoRecord,
     status: existing?.confirmedStatus ?? autoStatus,
     confirmationState: existing?.confirmedStatus ? "CONFIRMED" : "AUTO",
-    confirmationNote: existing?.confirmationNote ?? null
+    confirmationNote: existing?.confirmationNote ?? null,
+    confirmedAt: existing?.confirmedAt ?? null,
+    confirmedByName: existing?.confirmedByName ?? null,
+    confirmedByEmployeeId: existing?.confirmedByEmployeeId ?? null
   };
 }
 
@@ -828,4 +842,33 @@ export function confirmDailyAttendance(input: {
     WHERE employee_id = ? AND attendance_date = ?
   `).run(input.status, input.note?.trim() || null, input.confirmedByEmployeeId, new Date().toISOString(), input.employeeId, result.attendanceDate);
   return evaluateEmployeeDay(input.employeeId, result.attendanceDate);
+}
+
+export function confirmBatchDailyAttendance(input: {
+  items: Array<{
+    employeeId: number;
+    attendanceDate: string;
+    status: AttendanceConfirmedStatus;
+    note?: string | null;
+  }>;
+  confirmedByEmployeeId: number;
+}) {
+  if (!input.items.length) return { success: true, count: 0 };
+  for (const item of input.items) {
+    if (!ALL_STATUSES.includes(item.status)) throw new ValidationError(`Status konfirmasi tidak valid: ${item.status}`);
+  }
+  const now = new Date().toISOString();
+  return sqlite.transaction(() => {
+    let count = 0;
+    for (const item of input.items) {
+      evaluateEmployeeDay(item.employeeId, item.attendanceDate);
+      sqlite.prepare(`
+        UPDATE attendance_evaluations
+        SET confirmed_status = ?, confirmation_note = ?, confirmed_by_employee_id = ?, confirmed_at = ?
+        WHERE employee_id = ? AND attendance_date = ?
+      `).run(item.status, item.note?.trim() || null, input.confirmedByEmployeeId, now, item.employeeId, item.attendanceDate);
+      count++;
+    }
+    return { success: true, count };
+  })();
 }

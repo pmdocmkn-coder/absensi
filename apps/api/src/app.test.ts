@@ -519,10 +519,25 @@ describe("authentication and master-data API", () => {
       status: "OVERTIME",
       note: "Disetujui supervisor"
     }, adminCookie));
-    const confirmation = await confirmationResponse.json() as { confirmationState: string; confirmationNote: string | null };
+    const confirmation = await confirmationResponse.json() as { confirmationState: string; confirmationNote: string | null; confirmedByName: string | null; confirmedAt: string | null };
     expect(confirmationResponse.status).toBe(200);
     expect(confirmation.confirmationState).toBe("CONFIRMED");
     expect(confirmation.confirmationNote).toBe("Disetujui supervisor");
+    expect(confirmation.confirmedByName).toBe("Administrator Uji");
+    expect(Boolean(confirmation.confirmedAt)).toBe(true);
+
+    const batchResponse = await app.handle(jsonRequest("/api/attendance/daily/batch-confirm", "POST", {
+      items: [{
+        employeeId,
+        attendanceDate: "2026-08-31",
+        status: "PRESENT",
+        note: "Konfirmasi masal admin"
+      }]
+    }, adminCookie));
+    expect(batchResponse.status).toBe(200);
+    const batchData = await batchResponse.json() as { success: boolean; count: number };
+    expect(batchData.success).toBe(true);
+    expect(batchData.count).toBe(1);
   });
 
   test("orders daily attendance by the most recent scan activity", async () => {

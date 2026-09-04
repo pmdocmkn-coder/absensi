@@ -23,6 +23,9 @@ export type DailyAttendance = {
   hasOnCall: boolean;
   notes: string[];
   confirmationNote: string | null;
+  confirmedAt?: string | null;
+  confirmedByName?: string | null;
+  confirmedByEmployeeId?: number | null;
 };
 
 export const attendanceStatuses = ["PRESENT", "LATE", "OVERTIME", "ON_CALL", "OFF", "LEAVE", "ABSENT", "NEEDS_REVIEW"];
@@ -162,3 +165,38 @@ export function attendanceReasonDetails(record: Pick<DailyAttendance, "notes" | 
   if (record.confirmationNote) details.push(`Catatan admin: ${record.confirmationNote}`);
   return details.join(" · ");
 }
+
+export function formatAuditTime(isoString?: string | null) {
+  if (!isoString) return "";
+  try {
+    const date = new Date(isoString);
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${day}/${month} ${hours}:${minutes} WITA`;
+  } catch {
+    return isoString;
+  }
+}
+
+export function getAnomalyBadge(record: Pick<DailyAttendance, "autoStatus" | "notes" | "scheduleCode">) {
+  const notesText = record.notes.join(" ").toLowerCase();
+  if (notesText.includes("cuti") || notesText.includes("off")) {
+    return { label: "Scan di Hari Off/Cuti", icon: "⚠️", tone: "off" as AttendanceTone };
+  }
+  if (!record.scheduleCode || notesText.includes("tanpa jadwal") || record.autoStatus === "NO_SCHEDULE") {
+    return { label: "Tanpa Jadwal Kerja", icon: "❓", tone: "pending" as AttendanceTone };
+  }
+  if (notesText.includes("tidak absen pulang")) {
+    return { label: "Tidak Absen Pulang", icon: "⏱️", tone: "late" as AttendanceTone };
+  }
+  if (notesText.includes("tidak absen masuk")) {
+    return { label: "Tidak Absen Masuk", icon: "❌", tone: "danger" as AttendanceTone };
+  }
+  if (record.autoStatus === "LATE") {
+    return { label: "Terlambat", icon: "⏰", tone: "late" as AttendanceTone };
+  }
+  return null;
+}
+
