@@ -633,4 +633,52 @@ describe("authentication and master-data API", () => {
     const rosterList = await rosterResponse.json() as { records: Array<{ assignmentDate: string; assignmentType: string }> };
     expect(rosterList.records.filter((r) => r.assignmentType === "LEAVE").length).toBe(3);
   });
+
+  test("treats morning checkout scan from previous night shift as checkout and keeps current OFF day as OFF without false check-in", async () => {
+    const departmentResponse = await app.handle(jsonRequest("/api/departments", "POST", {
+      siteId: "site-default",
+      code: "NIGHT-OFF",
+      name: "Night Shift Roster"
+    }, adminCookie));
+    const department = await departmentResponse.json() as { id: string };
+
+    const employeeResponse = await app.handle(jsonRequest("/api/employees", "POST", {
+      employeeCode: "EMP-CREW-A-NIGHT",
+      name: "Crew A Night Worker",
+      siteId: "site-default",
+      departmentId: department.id,
+      deviceMappings: [{ deviceSerial: "X105-NIGHT-TEST", deviceUserCode: "crew-a-pin" }]
+    }, adminCookie));
+    const employee = await employeeResponse.json() as { id: number };
+
+    // Set work mode to Crew A roster (2026-09-03 is Shift Malam, 2026-09-04 is OFF)
+    await app.handle(jsonRequest(`/api/employee-work-modes/${employee.id}`, "PUT", {
+      mode: "ROSTER",
+      rosterGroup: "Crew A"
+    }, adminCookie));
+
+    // Upload check-in on 2026-09-03 at 18:00 and check-out on 2026-09-04 at 06:06
+    const uploadResponse = await app.handle(new Request("http://localhost/iclock/cdata?SN=X105-NIGHT-TEST&table=ATTLOG", {
+      method: "POST",
+      body: [
+        "crew-a-pin\t2026-09-03 18:00:00\t0\t1",
+        "crew-a-pin\t2026-09-04 06:06:00\t0\t1"
+      ].join("\n")
+    }));
+    expect(uploadResponse.status).toBe(200);
+
+    // Check attendance for 2026-09-03 (Night shift)
+    const nightShiftResponse = await app.handle(jsonRequest(`/api/attendance/daily?from=2026-09-03&to=2026-09-03&employeeId=${employee.id}`, "GET", undefined, adminCookie));
+    const nightPayload = await nightShiftResponse.json() as { records: Array<{ autoStatus: string; checkInAt: string | null; checkOutAt: string | null }> };
+    expect(nightPayload.records[0]?.autoStatus).toBe("PRESENT");
+    expect(nightPayload.records[0]?.checkInAt).toBe("2026-09-03 18:00:00");
+    expect(nightPayload.records[0]?.checkOutAt).toBe("2026-09-04 06:06:00");
+
+    // Check attendance for 2026-09-04 (OFF day)
+    const offDayResponse = await app.handle(jsonRequest(`/api/attendance/daily?from=2026-09-04&to=2026-09-04&employeeId=${employee.id}`, "GET", undefined, adminCookie));
+    const offPayload = await offDayResponse.json() as { records: Array<{ autoStatus: string; checkInAt: string | null; checkOutAt: string | null }> };
+    expect(offPayload.records[0]?.autoStatus).toBe("OFF");
+    expect(offPayload.records[0]?.checkInAt).toBeNull();
+    expect(offPayload.records[0]?.checkOutAt).toBeNull();
+  });
 });

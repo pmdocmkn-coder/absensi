@@ -450,13 +450,10 @@ function dateHasEnded(date: string, endTime: string, crossesMidnight: boolean) {
   return new Date() >= new Date(`${endDate}T${endTime}:00+08:00`);
 }
 
-export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: string): DailyAttendance {
-  const attendanceDate = validDate(attendanceDateInput);
-  const person = profileRow(employeeId);
-  if (!person) throw new NotFoundError("Karyawan aktif tidak ditemukan");
-  const globalSettings = getAttendanceSettings();
+type ProfilePerson = NonNullable<ReturnType<typeof profileRow>>;
 
-  const roster = rosterFor(employeeId, attendanceDate);
+function resolveEmployeeSchedule(person: ProfilePerson, attendanceDate: string) {
+  const roster = rosterFor(person.employeeId, attendanceDate);
   const regular = roster.find((entry) => entry.assignmentType === "REGULAR");
   const isOff = roster.some((entry) => entry.assignmentType === "OFF");
   const isLeave = roster.some((entry) => entry.assignmentType === "LEAVE");
@@ -498,8 +495,76 @@ export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: str
     ? Boolean(weeklyTemplateIds[dayOfWeek(attendanceDate)])
     : parseWorkdays(person.workdaysJson ?? "[1,2,3,4,5]").includes(dayOfWeek(attendanceDate)));
   const template = regularTemplate ?? (profileWorksToday ? profileTemplateForToday : null);
+
+  return {
+    roster,
+    regular,
+    isOff,
+    isLeave,
+    hasOnCall,
+    explicitOvertime,
+    automaticRoster,
+    isAutomaticRosterOff,
+    template,
+    fallbackTemplate,
+    profileTemplateForToday,
+    profileWorksToday,
+    usesImplicitSteadyDay
+  };
+}
+
+export function evaluateEmployeeDay(employeeId: number, attendanceDateInput: string): DailyAttendance {
+  const attendanceDate = validDate(attendanceDateInput);
+  const person = profileRow(employeeId);
+  if (!person) throw new NotFoundError("Karyawan aktif tidak ditemukan");
+  const globalSettings = getAttendanceSettings();
+
+  const schedule = resolveEmployeeSchedule(person, attendanceDate);
+  const {
+    isOff,
+    isLeave,
+    hasOnCall,
+    explicitOvertime,
+    automaticRoster,
+    isAutomaticRosterOff,
+    template,
+    fallbackTemplate,
+    profileTemplateForToday,
+    profileWorksToday,
+    usesImplicitSteadyDay
+  } = schedule;
+
   const crossesMidnight = Boolean(template?.crossesMidnight);
-  const scans = scansFor(employeeId, attendanceDate, crossesMidnight);
+
+  // Periksa jadwal shift kemarin (D - 1).
+  // Jika kemarin karyawan memiliki shift yang melintasi tengah malam (seperti Shift Malam 18:00 - 06:00),
+  // maka scan di pagi hari ini (sebelum jam 12:00 siang) merupakan absen PULANG (checkout) dari shift malam kemarin.
+  // Jika hari ini karyawan berstatus OFF, LEAVE, atau belum dijadwalkan, scan pagi tersebut
+  // TIDAK boleh dianggap sebagai scan masuk baru pada hari ini.
+  const prevDate = addDays(attendanceDate, -1);
+  const prevSchedule = resolveEmployeeSchedule(person, prevDate);
+  const prevCrossesMidnight = Boolean(prevSchedule.template?.crossesMidnight);
+
+  let scans = scansFor(employeeId, attendanceDate, crossesMidnight);
+
+  if (prevCrossesMidnight) {
+    const prevScans = scansFor(employeeId, prevDate, true);
+    const prevPair = identifyScanPair(prevScans, prevDate, prevSchedule.template);
+    const prevCheckout = prevPair.checkOutAt;
+
+    scans = scans.filter((scan) => {
+      // Jika scan terjadi pada pagi hari attendanceDate (sebelum 12:00 siang)
+      if (scan.recordedAt.slice(0, 10) === attendanceDate && scan.recordedAt.slice(11, 19) < "12:00:00") {
+        // Jika scan ini digunakan sebagai checkout kemarin
+        if (prevCheckout && scan.recordedAt === prevCheckout) return false;
+        // Jika hari ini berstatus OFF, LEAVE, atau tanpa jadwal kerja aktif,
+        // seluruh scan pagi ini adalah kepulangan dari shift malam kemarin
+        if (isOff || isLeave || isAutomaticRosterOff || !template) return false;
+      }
+      return true;
+    });
+  }
+
   const scanPair = identifyScanPair(scans, attendanceDate, template);
   const checkInAt = scanPair.checkInAt;
   const checkOutAt = scanPair.checkOutAt;
