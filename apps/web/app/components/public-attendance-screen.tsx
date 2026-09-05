@@ -253,20 +253,12 @@ export function PublicAttendanceScreen() {
             </div>
           ) : latest ? (
             <div className="public-attendance-person" key={`${latest.employeeName}-${latest.recordedAt}`}>
-              {/* Employee Avatar Circle */}
+              {/* Employee Avatar Circle with Monogram Initials */}
               <div
                 className="public-attendance-avatar"
                 style={{ backgroundColor: getAvatarColor(latest.employeeName) }}
                 aria-hidden="true"
               >
-                <img
-                  src="/assets/avatar_hero.jpg"
-                  alt={latest.employeeName}
-                  className="hero-avatar-img"
-                  onError={(e) => {
-                    e.currentTarget.style.display = "none";
-                  }}
-                />
                 <div className="avatar-ring" />
                 <span className="avatar-initials">{initials(latest.employeeName)}</span>
               </div>
@@ -386,13 +378,51 @@ export function PublicAttendanceScreen() {
                 <span className="metric-sub-text">orang sudah melakukan scan</span>
               </div>
 
-              {/* Team Illustration Graphic */}
+              {/* Handcrafted Neo-Industrial Vector Team Illustration */}
               <div className="metric-graphic team-graphic" aria-hidden="true">
-                <img
-                  src="/assets/team_graphic.jpg"
-                  alt="Tim Karyawan"
-                  className="metric-img-asset"
-                />
+                <svg width="112" height="74" viewBox="0 0 112 74" fill="none" xmlns="http://www.w3.org/2000/svg" className="metric-svg-team">
+                  {/* Left Person: Female Specialist (Teal Blazer) */}
+                  <g>
+                    <path d="M6 72c0-12 8-20 20-20h6c12 0 20 8 20 20" fill="#0d9488" stroke="#0f172a" strokeWidth="2.2" strokeLinejoin="round" />
+                    <path d="M29 52v20" stroke="#0f172a" strokeWidth="1.8" />
+                    <polygon points="29,52 24,62 34,62" fill="#ffffff" stroke="#0f172a" strokeWidth="1.4" />
+                    <rect x="26" y="38" width="6" height="7" fill="#fed7aa" stroke="#0f172a" strokeWidth="1.6" />
+                    <circle cx="29" cy="26" r="12" fill="#fed7aa" stroke="#0f172a" strokeWidth="2.2" />
+                    <path d="M18 24c0-7 5-12 11-12s11 5 11 12c-1 3-3 4-11 4s-10-1-11-4z" fill="#0f172a" />
+                    <path d="M17 26c1 5 4 9 6 10" stroke="#0f172a" strokeWidth="2.2" strokeLinecap="round" />
+                    <circle cx="25.5" cy="25" r="1.3" fill="#0f172a" />
+                    <circle cx="32.5" cy="25" r="1.3" fill="#0f172a" />
+                    <path d="M27 30c1 1 3 1 4 0" stroke="#0f172a" strokeWidth="1.4" strokeLinecap="round" />
+                  </g>
+
+                  {/* Right Person: Operations / Engineer (Amber Jacket) */}
+                  <g>
+                    <path d="M60 72c0-12 8-20 20-20h6c12 0 20 8 20 20" fill="#ea580c" stroke="#0f172a" strokeWidth="2.2" strokeLinejoin="round" />
+                    <path d="M83 52v20" stroke="#0f172a" strokeWidth="1.8" />
+                    <polygon points="83,52 78,62 88,62" fill="#ffffff" stroke="#0f172a" strokeWidth="1.4" />
+                    <rect x="80" y="38" width="6" height="7" fill="#fed7aa" stroke="#0f172a" strokeWidth="1.6" />
+                    <circle cx="83" cy="26" r="12" fill="#fed7aa" stroke="#0f172a" strokeWidth="2.2" />
+                    <path d="M72 22c0-6 5-11 11-11s11 5 11 11c-1 2-3 3-11 3s-10-1-11-3z" fill="#78350f" />
+                    <path d="M77 29c1.5 3.5 4.5 5.5 6 5.5s4.5-2 6-5.5" fill="#78350f" stroke="#0f172a" strokeWidth="1.4" />
+                    <circle cx="79.5" cy="25" r="1.3" fill="#0f172a" />
+                    <circle cx="86.5" cy="25" r="1.3" fill="#0f172a" />
+                  </g>
+
+                  {/* Center Person: Executive Director (Navy Suit with Red Tie) */}
+                  <g>
+                    <path d="M30 74c0-13 10-22 26-22s26 9 26 22" fill="#1e293b" stroke="#0f172a" strokeWidth="2.4" strokeLinejoin="round" />
+                    <polygon points="56,52 48,64 64,64" fill="#ffffff" stroke="#0f172a" strokeWidth="1.6" />
+                    <polygon points="56,55 52,68 56,73 60,68" fill="#dc2626" stroke="#0f172a" strokeWidth="1.4" />
+                    <line x1="53" y1="65" x2="59" y2="65" stroke="#facc15" strokeWidth="1.2" />
+                    <rect x="52.5" y="36" width="7" height="8" fill="#fed7aa" stroke="#0f172a" strokeWidth="1.6" />
+                    <circle cx="56" cy="22" r="14" fill="#fed7aa" stroke="#0f172a" strokeWidth="2.4" />
+                    <path d="M43 19c0-8 6-14 13-14s13 6 13 14c-2 2-4 3-13 3s-11-1-13-3z" fill="#0f172a" />
+                    <path d="M42 20c2-5 7-9 14-9" stroke="#334155" strokeWidth="1.5" strokeLinecap="round" />
+                    <circle cx="51.5" cy="21" r="1.5" fill="#0f172a" />
+                    <circle cx="60.5" cy="21" r="1.5" fill="#0f172a" />
+                    <path d="M53 27c1.5 1.4 4.5 1.4 6 0" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" />
+                  </g>
+                </svg>
               </div>
             </div>
 
@@ -425,13 +455,35 @@ export function PublicAttendanceScreen() {
                 <span className="metric-sub-text">scan tersimpan hari ini</span>
               </div>
 
-              {/* Bar Chart Illustration Graphic */}
+              {/* Handcrafted Neo-Industrial Vector Chart Illustration */}
               <div className="metric-graphic chart-graphic" aria-hidden="true">
-                <img
-                  src="/assets/chart_graphic.jpg"
-                  alt="Grafik Pertumbuhan"
-                  className="metric-img-asset"
-                />
+                <svg width="104" height="70" viewBox="0 0 104 70" fill="none" xmlns="http://www.w3.org/2000/svg" className="metric-svg-chart">
+                  <line x1="6" y1="48" x2="98" y2="48" stroke="#cbd5e1" strokeWidth="1" strokeDasharray="3 3" />
+                  <line x1="6" y1="30" x2="98" y2="30" stroke="#cbd5e1" strokeWidth="1" strokeDasharray="3 3" />
+                  <line x1="6" y1="12" x2="98" y2="12" stroke="#cbd5e1" strokeWidth="1" strokeDasharray="3 3" />
+                  <line x1="4" y1="64" x2="100" y2="64" stroke="#0f172a" strokeWidth="2.5" strokeLinecap="round" />
+
+                  {/* Vertical Bars with 3D Gloss Sheen */}
+                  <rect x="10" y="44" width="14" height="20" rx="3" fill="#93c5fd" stroke="#0f172a" strokeWidth="2" />
+                  <line x1="14" y1="48" x2="14" y2="59" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round" opacity="0.8" />
+
+                  <rect x="32" y="30" width="14" height="34" rx="3" fill="#3b82f6" stroke="#0f172a" strokeWidth="2" />
+                  <line x1="36" y1="34" x2="36" y2="59" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round" opacity="0.8" />
+
+                  <rect x="54" y="36" width="14" height="28" rx="3" fill="#facc15" stroke="#0f172a" strokeWidth="2" />
+                  <line x1="58" y1="40" x2="58" y2="59" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round" opacity="0.8" />
+
+                  <rect x="76" y="18" width="14" height="46" rx="3" fill="#10b981" stroke="#0f172a" strokeWidth="2" />
+                  <line x1="80" y1="22" x2="80" y2="59" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round" opacity="0.8" />
+
+                  {/* Smooth Dynamic Trend Arrow Line */}
+                  <path d="M8 44 C 22 40, 26 26, 40 24 C 52 22, 64 30, 74 18 L 92 8" stroke="#059669" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M79 8 H92 V21" stroke="#059669" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />
+                  <circle cx="8" cy="44" r="2.8" fill="#ffffff" stroke="#059669" strokeWidth="2.2" />
+                  <circle cx="39" cy="24" r="2.8" fill="#ffffff" stroke="#059669" strokeWidth="2.2" />
+                  <circle cx="68" cy="24" r="2.8" fill="#ffffff" stroke="#059669" strokeWidth="2.2" />
+                  <circle cx="92" cy="8" r="3.4" fill="#10b981" stroke="#0f172a" strokeWidth="2.2" />
+                </svg>
               </div>
             </div>
 
@@ -461,13 +513,19 @@ export function PublicAttendanceScreen() {
               <small>Diperbarui otomatis setiap 5 detik</small>
             </div>
 
-            {/* Cloud Server Graphic */}
+            {/* Handcrafted Vector Cloud Server Graphic */}
             <div className="sync-graphic" aria-hidden="true">
-              <img
-                src="/assets/server_graphic.jpg"
-                alt="Server Cloud"
-                className="metric-img-asset server-img-asset"
-              />
+              <svg width="56" height="42" viewBox="0 0 56 42" fill="none" xmlns="http://www.w3.org/2000/svg" className="metric-svg-server">
+                <path d="M15 30h26a9 9 0 0 0 2.5-17.6 11.5 11.5 0 0 0-22.5-2.8A8 8 0 0 0 15 30z" fill="#f1f5f9" stroke="#0f172a" strokeWidth="2.2" strokeLinejoin="round" />
+                <rect x="13" y="24" width="30" height="14" rx="3" fill="#ffffff" stroke="#0f172a" strokeWidth="2" />
+                <line x1="13" y1="31" x2="43" y2="31" stroke="#0f172a" strokeWidth="1.5" />
+                <circle cx="18" cy="27.5" r="1.8" fill="#22c55e" />
+                <circle cx="23" cy="27.5" r="1.8" fill="#3b82f6" />
+                <line x1="30" y1="27.5" x2="38" y2="27.5" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" />
+                <circle cx="18" cy="34.5" r="1.8" fill="#22c55e" />
+                <circle cx="23" cy="34.5" r="1.8" fill="#f59e0b" />
+                <line x1="30" y1="34.5" x2="38" y2="34.5" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
             </div>
           </div>
         </aside>
